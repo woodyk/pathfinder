@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>AI Dashboard</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #1a1a1a;
+            font-family: 'Arial', sans-serif;
+            color: white;
+        }
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            padding: 10px;
+        }
+        .module {
+            background: #333;
+            border: 1px solid #444;
+            border-radius: 10px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+        }
+        .module h2 {
+            color: #ffa500;
+            font-size: 1.2em;
+            margin: 0 0 10px 0;
+        }
+        .module p {
+            margin: 0;
+            color: #ddd;
+        }
+        .control {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .control button {
+            background-color: #ffa500;
+            border: none;
+            padding: 10px 20px;
+            color: white;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .control input[type="range"] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+        .control input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 15px;
+            width: 15px;
+            border-radius: 50%;
+            background: #ffa500;
+            cursor: pointer;
+        }
+        .indicator {
+            background: #444;
+            padding: 5px;
+            border-radius: 5px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard">
+        <div class="module">
+            <h2>Settings</h2>
+            <div class="control">
+                <p>Volume</p>
+                <input type="range" min="0" max="100" value="50">
+            </div>
+            <div class="control">
+                <p>Brightness</p>
+                <input type="range" min="0" max="100" value="50">
+            </div>
+            <div class="indicator">
+                <p>Status: Good</p>
+            </div>
+        </div>
+        <!-- Repeat for other modules -->
+    </div>
+</body>
+</html>

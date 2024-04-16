@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chatbot Interface</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-color: #f8f8f8;
+      --text-color: #333;
+      --chatbot-bg-color: #fff;
+      --chatbot-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+      --header-color: #007bff;
+      --user-message-bg: #007bff;
+      --user-message-color: #fff;
+      --bot-message-bg: #e9ecef;
+      --bot-message-color: #343a40;
+      --input-border-color: #ced4da;
+      --submit-bg-color: #007bff;
+      --submit-color: #fff;
+    }
+
+    .dark-theme {
+      --bg-color: #1c1c1e;
+      --text-color: #f0f0f0;
+      --chatbot-bg-color: #2c2c2e;
+      --chatbot-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+      --header-color: #f0f0f0;
+      --user-message-bg: #007bff;
+      --user-message-color: #f0f0f0;
+      --bot-message-bg: #3c3c3e;
+      --bot-message-color: #f0f0f0;
+      --input-border-color: #3c3c3e;
+      --submit-bg-color: #007bff;
+      --submit-color: #f0f0f0;
+    }
+
+    body {
+      font-family: 'Poppins', sans-serif;
+      background-color: var(--bg-color);
+      margin: 0;
+      padding: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      transition: background-color 0.3s ease;
+    }
+
+    .chatbot-container {
+      background-color: var(--chatbot-bg-color);
+      padding: 20px;
+      box-shadow: var(--chatbot-shadow);
+      border-radius: 12px;
+      width: 400px;
+      height: 600px;
+      display: flex;
+      flex-direction: column;
+      position: absolute;
+      z-index: 9999;
+      transition: background-color 0.3s ease, box-shadow 0.3s ease;
+    }
+
+    .chat-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    .chat-header h2 {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--header-color);
+      transition: color 0.3s ease;
+    }
+
+    .close-button {
+      background-color: transparent;
+      border: none;
+      font-size: 20px;
+      color: #aaa;
+      cursor: pointer;
+      transition: color 0.3s ease;
+    }
+
+    .theme-toggle {
+      background-color: transparent;
+      border: none;
+      font-size: 16px;
+      color: var(--header-color);
+      cursor: pointer;
+      transition: color 0.3s ease;
+    }
+
+    .chat-display {
+      flex-grow: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 10px;
+    }
+
+    .chat-message {
+      padding: 10px;
+      border-radius: 8px;
+      max-width: 70%;
+      word-wrap: break-word;
+      transition: background-color 0.3s ease, color 0.3s ease;
+    }
+
+    .user-message {
+      background-color: var(--user-message-bg);
+      color: var(--user-message-color);
+      align-self: flex-end;
+    }
+
+    .bot-message {
+      background-color: var(--bot-message-bg);
+      color: var(--bot-message-color);
+      align-self: flex-start;
+    }
+
+    .chat-input-container {
+      display: flex;
+      gap: 10px;
+      margin-top: 20px;
+    }
+
+    .chat-input {
+      flex-grow: 1;
+      padding: 10px;
+      border: 1px solid var(--input-border-color);
+      border-radius: 4px;
+      font-size: 16px;
+      transition: border-color 0.3s ease, background-color 0.3s ease, color 0.3s ease;
+    }
+
+    .chat-submit {
+      background-color: var(--submit-bg-color);
+      color: var(--submit-color);
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+      transition: background-color 0.3s ease;
+    }
+
+    .theme-switcher {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      display: flex;
+      align-items: center;
+    }
+
+    .theme-switcher label {
+      margin-right: 10px;
+    }
+
+    .theme-switcher .switch {
+      position: relative;
+      display: inline-block;
+      width: 60px;
+      height: 34px;
+    }
+
+    .theme-switcher .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .theme-switcher .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: var(--submit-bg-color);
+      transition: 0.4s;
+      border-radius: 34px;
+    }
+
+    .theme-switcher .slider:before {
+      position: absolute;
+      content: "";
+      height: 26px;
+      width: 26px;
+      left: 4px;
+      bottom: 4px;
+      background-color: var(--submit-color);
+      transition: 0.4s;
+      border-radius: 50%;
+    }
+
+    .theme-switcher input:checked + .slider {
+      background-color: var(--submit-bg-color);
+    }
+
+    .theme-switcher input:checked + .slider:before {
+      transform: translateX(26px);
+    }
+  </style>
+</head>
+<body>
+  <div class="chatbot-container" id="chatbot-container">
+    <div class="chat-header">
+      <h2>Chatbot</h2>
+      <div>
+        <button class="theme-toggle" onclick="toggleTheme()">&#9681;</button>
+        <button class="close-button">&times;</button>
+      </div>
+    </div>
+    <div class="chat-display" id="chat-display"></div>
+    <div class="chat-input-container">
+      <input type="text" id="chat-input" class="chat-input" placeholder="Type your message here..." onkeyup="if(event.keyCode==13) sendMessage()">
+      <button onclick="sendMessage()" class="chat-submit">Send</button>
+    </div>
+  </div>
+
+  <div class="theme-switcher">
+    <label for="theme-switch">Light Mode</label>
+    <label class="switch">
+      <input type="checkbox" id="theme-switch" onchange="toggleTheme()">
+      <span class="slider"></span>
+    </label>
+    <label for="theme-switch">Dark Mode</label>
+  </div>
+
+  <script>
+    function getBotResponse(userMessage) {
+      // Simple keyword-driven response logic
+      if (userMessage.includes("hello") || userMessage.includes("hi")) {
+        return "Hello! How can I help you today?";
+      } else if (userMessage.includes("help")) {
+        return "Sure, what do you need help with?";
+      } else if (userMessage.includes("bye")) {
+        return "Goodbye! Have a great day!";
+      } else {
+        return "Sorry, I'm not sure how to respond to that.";
+      }
+    }
+
+    function sendMessage() {
+      var inputField = document.getElementById("chat-input");
+      var message = inputField.value.trim();
+      if (message !== "") {
+        var chatDisplay = document.getElementById("chat-display");
+
+        var userMessageDiv = document.createElement("div");
+        userMessageDiv.className = "chat-message user-message";
+        userMessageDiv.textContent = "You: " + message;
+        chatDisplay.appendChild(userMessageDiv);
+
+        // Get the bot's response
+        var botResponse = getBotResponse(message.toLowerCase());
+
+        var botMessageDiv = document.createElement("div");
+        botMessageDiv.className = "chat-message bot-message";
+        botMessageDiv.textContent = "Bot: " + botResponse;
+        chatDisplay.appendChild(botMessageDiv);
+
+        // Clear the input field
+        inputField.value = "";
+
+        // Scroll to the bottom of the chat display
+        chatDisplay.scrollTop = chatDisplay.scrollHeight;
+      }
+    }
+
+    function toggleTheme() {
+      var body = document.body;
+      body.classList.toggle("dark-theme");
+    }
+
+    // Draggable functionality
+    var chatbotContainer = document.getElementById("chatbot-container");
+    var isDragging = false;
+    var currentX;
+    var currentY;
+    var initialX;
+    var initialY;
+    var xOffset = 0;
+    var yOffset = 0;
+
+    chatbotContainer.addEventListener("mousedown", dragStart);
+    chatbotContainer.addEventListener("mouseup", dragEnd);
+    chatbotContainer.addEventListener("mousemove", drag);
+
+    function dragStart(e) {
+      initialX = e.clientX - xOffset;
+      initialY = e.clientY - yOffset;
+
+      if (e.target === chatbotContainer) {
+        isDragging = true;
+      }
+    }
+
+    function dragEnd(e) {
+      initialX = currentX;
+      initialY = currentY;
+
+      isDragging = false;
+    }
+
+    function drag(e) {
+      if (isDragging) {
+        e.preventDefault();
+
+        currentX = e.clientX - initialX;
+        currentY = e.clientY - initialY;
+
+        xOffset = currentX;
+        yOffset = currentY;
+
+        setTranslate(currentX, currentY, chatbotContainer);
+      }
+    }
+
+    function setTranslate(xPos, yPos, el) {
+      el.style.transform = `translate3d(${xPos}px, ${yPos}px, 0)`;
+    }
+  </script>
+</body>
+</html>

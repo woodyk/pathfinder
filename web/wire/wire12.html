@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PathFinder Interface</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-color: #f8f8f8;
+      --text-color: #333;
+      --panel-bg-color: #fff;
+      --panel-border-color: #ddd;
+      --chatbot-bg-color: #fff;
+      --chatbot-border-color: #007bff;
+      --input-border-color: #ced4da;
+      --submit-bg-color: #007bff;
+      --submit-color: #fff;
+    }
+    .dark-theme {
+      --bg-color: #121212;
+      --text-color: #e0e0e0;
+      --panel-bg-color: #333;
+      --panel-border-color: #444;
+      --chatbot-bg-color: #2a2a2a;
+      --chatbot-border-color: #007bff;
+      --input-border-color: #3c3c3e;
+      --submit-bg-color: #007bff;
+      --submit-color: #f0f0f0;
+    }
+    body {
+      font-family: 'Poppins', sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      margin: 0;
+      padding: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      transition: background-color 0.3s ease;
+    }
+    .container {
+      width: 80%;
+      max-width: 1200px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .panel {
+      background-color: var(--panel-bg-color);
+      border: 1px solid var(--panel-border-color);
+      padding: 20px;
+      border-radius: 10px;
+    }
+    .chatbot-container {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      width: 300px;
+      height: 400px;
+      background-color: var(--chatbot-bg-color);
+      border: 2px solid var(--chatbot-border-color);
+      border-radius: 10px;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      z-index: 1000;
+    }
+    .chat-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .chat-header h2 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--chatbot-border-color);
+    }
+    .close-button {
+      background-color: transparent;
+      border: none;
+      font-size: 16px;
+      color: var(--text-color);
+      cursor: pointer;
+    }
+    .theme-toggle {
+      background-color: transparent;
+      border: none;
+      font-size: 14px;
+      color: var(--chatbot-border-color);
+      cursor: pointer;
+    }
+    .chat-display {
+      flex-grow: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 10px;
+    }
+    .chat-message {
+      padding: 10px;
+      border-radius: 8px;
+      max-width: 70%;
+      word-wrap: break-word;
+    }
+    .user-message {
+      background-color: var(--chatbot-border-color);
+      color: var(--submit-color);
+      align-self: flex-end;
+    }
+    .bot-message {
+      background-color: var(--panel-border-color);
+      color: var(--text-color);
+      align-self: flex-start;
+    }
+    .chat-input-container {
+      display: flex;
+      gap: 10px;
+    }
+    .chat-input {
+      flex-grow: 1;
+      padding: 10px;
+      border: 1px solid var(--input-border-color);
+      border-radius: 4px;
+      font-size: 16px;
+    }
+    .chat-submit {
+      background-color: var(--submit-bg-color);
+      color: var(--submit-color);
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    .theme-switcher {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      cursor: pointer;
+    }
+    .file-upload-container {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .file-upload-input {
+      display: none;
+    }
+    .file-upload-label {
+      background-color: var(--submit-bg-color);
+      color: var(--submit-color);
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    .file-list {
+      list-style-type: none;
+      padding: 0;
+      margin: 0;
+    }
+    .file-list li {
+      padding: 5px 0;
+    }
+  </style>
+</head>
+<body class="light-theme">
+  <div class="container">
+    <!-- File Browser Panel -->
+    <div class="panel">
+      <h2>File Browser</h2>
+      <div class="file-upload-container">
+        <input type="file" id="file-upload" class="file-upload-input" multiple>
+        <label for="file-upload" class="file-upload-label">Upload Files</label>
+      </div>
+      <ul id="file-list" class="file-list"></ul>
+    </div>
+    <!-- Additional panels or content can be added here -->
+  </div>
+  <!-- Chatbot Container -->
+  <div class="chatbot-container" id="chatbot-container">
+    <div class="chat-header">
+      <h2>Chatbot</h2>
+      <div>
+        <button class="theme-toggle" onclick="toggleTheme()">&#9681;</button>
+        <button class="close-button">&times;</button>
+      </div>
+    </div>
+    <div class="chat-display" id="chat-display"></div>
+    <div class="chat-input-container">
+      <input type="text" id="chat-input" class="chat-input" placeholder="Type your message here..." onkeyup="if(event.keyCode==13) sendMessage()">
+      <button onclick="sendMessage()" class="chat-submit">Send</button>
+    </div>
+  </div>
+  <!-- Theme Switcher -->
+  <div class="theme-switcher" onclick="toggleTheme()">
+    Switch Theme
+  </div>
+
+  <script>
+    function toggleTheme() {
+      document.body.classList.toggle("dark-theme");
+    }
+
+    function getBotResponse(userMessage) {
+      // Simple keyword-driven response logic
+      if (userMessage.includes("hello") || userMessage.includes("hi")) {
+        return "Hello! How can I assist you today?";
+      } else if (userMessage.includes("help")) {
+        return "Sure, I'm here to help. What do you need assistance with?";
+      } else if (userMessage.includes("bye")) {
+        return "Goodbye! Have a great day!";
+      } else if (userMessage.includes("weather")) {
+        return "Unfortunately, I don't have access to real-time weather information. However, you can check weather websites or apps for the latest updates.";
+      } else if (userMessage.includes("news")) {
+        return "I don't have access to news sources directly. You can visit reputable news websites or apps to stay updated on current events.";
+      } else {
+        return "I'm sorry, I didn't understand your request. Could you please rephrase or provide more context?";
+      }
+    }
+
+    function sendMessage() {
+      var inputField = document.getElementById("chat-input");
+      var message = inputField.value.trim();
+      if (message !== "") {
+        var chatDisplay = document.getElementById("chat-display");
+
+        var userMessageDiv = document.createElement("div");
+        userMessageDiv.className = "chat-message user-message";
+        userMessageDiv.textContent = "You: " + message;
+        chatDisplay.appendChild(userMessageDiv);
+
+        // Get the bot's response
+        var botResponse = getBotResponse(message.toLowerCase());
+
+        var botMessageDiv = document.createElement("div");
+        botMessageDiv.className = "chat-message bot-message";
+        botMessageDiv.textContent = "Bot: " + botResponse;
+        chatDisplay.appendChild(botMessageDiv);
+
+        // Clear the input field
+        inputField.value = "";
+
+        // Scroll to the bottom of the chat display
+        chatDisplay.scrollTop = chatDisplay.scrollHeight;
+      }
+    }
+
+    // Draggable functionality
+    var chatbotContainer = document.getElementById("chatbot-container");
+    var isDragging = false;
+    var currentX;
+    var currentY;
+    var initialX;
+    var initialY;
+    var xOffset = 0;
+    var yOffset = 0;
+
+    chatbotContainer.addEventListener("mousedown", dragStart);
+    chatbotContainer.addEventListener("mouseup", dragEnd);
+    chatbotContainer.addEventListener("mousemove", drag);
+
+    function dragStart(e) {
+      initialX = e.clientX - xOffset;
+      initialY = e.clientY - yOffset;
+
+      if (e.target === chatbotContainer) {
+        isDragging = true;
+      }
+    }
+
+    function dragEnd(e) {
+      initialX = currentX;
+      initialY = currentY;
+
+      isDragging = false;
+    }
+
+    function drag(e) {
+      if (isDragging) {
+        e.preventDefault();
+
+        currentX = e.clientX - initialX;
+        currentY = e.clientY - initialY;
+
+        xOffset = currentX;
+        yOffset = currentY;
+
+        setTranslate(currentX, currentY, chatbotContainer);
+      }
+    }
+
+    function setTranslate(xPos, yPos, el) {
+      el.style.transform = `translate3d(${xPos}px, ${yPos}px, 0)`;
+    }
+
+    // File upload functionality
+    var fileUploadInput = document.getElementById("file-upload");
+    var fileList = document.getElementById("file-list");
+
+    fileUploadInput.addEventListener("change", function() {
+      var files = this.files;
+      for (var i = 0; i < files.length; i++) {
+        var li = document.createElement("li");
+        li.textContent = files[i].name;
+        fileList.appendChild(li);
+      }
+    });
+  </script>
+</body>
+</html>

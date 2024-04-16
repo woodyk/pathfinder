@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard with Theme Toggle</title>
+    <style>
+        :root {
+            --background-light: #f0f0f7;
+            --background-dark: #333;
+            --text-light: #333;
+            --text-dark: #f0f0f7;
+            --shadow-light: rgba(0, 0, 0, 0.1);
+            --shadow-dark: rgba(255, 255, 255, 0.1);
+        }
+
+        body {
+            margin: 0;
+            height: 100vh;
+            font-family: Arial, sans-serif;
+            transition: background 0.3s, color 0.3s;
+            background-color: var(--background-light);
+            color: var(--text-light);
+        }
+
+        .container {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: repeat(3, 1fr);
+            height: 100%;
+            gap: 10px;
+            padding: 10px;
+            transition: background 0.3s;
+        }
+
+        .module {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px var(--shadow-light);
+            transition: box-shadow 0.3s;
+        }
+
+        .theme-toggle {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            cursor: pointer;
+        }
+
+        /* Cool Widget Styles */
+        .cool-widget {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 15px 32px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 4px 2px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        .dark-mode {
+            background-color: var(--background-dark);
+            color: var(--text-dark);
+            box-shadow: 0 2px 4px var(--shadow-dark);
+        }
+
+        .dark-mode .module {
+            box-shadow: 0 2px 4px var(--shadow-dark);
+        }
+
+        .dark-mode .cool-widget {
+            background-color: #555;
+        }
+    </style>
+</head>
+<body>
+    <div class="theme-toggle">Toggle Theme</div>
+    <div class="container">
+        <!-- Other modules -->
+        <div class="module">Module 1</div>
+        <div class="module">Module 2</div>
+        <div class="module">Module 3</div>
+        <!-- Cool Widget in one cell -->
+        <div class="module cool-widget">Cool Widget</div>
+        <!-- Other modules -->
+        <div class="module">Module 4</div>
+        <div class="module">Module 5</div>
+        <div class="module">Module 6</div>
+        <div class="module">Module 7</div>
+        <div class="module">Module 8</div>
+    </div>
+
+    <script>
+        document.querySelector('.theme-toggle').addEventListener('click', function() {
+            document.body.classList.toggle('dark-mode');
+        });
+    </script>
+</body>
+</html>
+

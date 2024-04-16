@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Directory Index</title>
+  <style>
+    /* Dark modern theme */
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #222;
+      color: #eee;
+      margin: 0;
+      padding: 20px;
+    }
+
+    h1 {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+
+    .file-container {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .file-box {
+      background-color: #333;
+      padding: 20px;
+      margin: 10px;
+      border-radius: 10px;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+      width: 200px;
+      text-align: center;
+    }
+
+    .file-box a {
+      color: #eee;
+      text-decoration: none;
+    }
+
+    .file-box a:hover {
+      color: #aaa;
+    }
+  </style>
+</head>
+<body>
+  <h1>Directory Index</h1>
+  <div class="file-container">
+    <!-- PHP script to get all files in the current directory -->
+    <?php
+    $files = scandir('.');
+    foreach ($files as $file) {
+      if ($file !== '.' && $file !== '..') {
+        echo "<div class='file-box'><a href='$file'>$file</a></div>";
+      }
+    }
+    ?>
+  </div>
+</body>
+</html>

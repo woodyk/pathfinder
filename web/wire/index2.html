@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PathFinder - Advanced Investigation Platform</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-color: #f8f8f8;
+      --text-color: #333;
+      --panel-bg-color: #fff;
+      --panel-border-color: #ddd;
+      --accent-color: #007bff;
+    }
+    .dark-theme {
+      --bg-color: #121212;
+      --text-color: #e0e0e0;
+      --panel-bg-color: #333;
+      --panel-border-color: #444;
+      --accent-color: #007bff;
+    }
+    body {
+      font-family: 'Poppins', sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+    header {
+      background-color: var(--accent-color);
+      color: #fff;
+      padding: 20px;
+      text-align: center;
+    }
+    main {
+      flex: 1;
+      padding: 20px;
+    }
+    .panel {
+      background-color: var(--panel-bg-color);
+      border: 1px solid var(--panel-border-color);
+      padding: 20px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+    }
+    footer {
+      background-color: var(--accent-color);
+      color: #fff;
+      padding: 10px;
+      text-align: center;
+    }
+    .theme-switcher {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body class="light-theme">
+  <header>
+    <h1>PathFinder</h1>
+  </header>
+  <main>
+    <div class="panel">
+      <h2>What is PathFinder?</h2>
+      <p>PathFinder is a unique and innovative platform that combines advanced AI-driven analysis and Open Source Intelligence (OSINT) tools. It is designed to assist investigators, researchers, journalists, and other professionals in gathering, analyzing, and visualizing data from various sources.</p>
+    </div>
+    <div class="panel">
+      <h2>Key Features</h2>
+      <ul>
+        <li>OSINT database integration: Access and integrate data from social media platforms, public records, online forums, and news articles.</li>
+        <li>Public records integration: Incorporate public records data, such as court documents, property records, and licensing data.</li>
+        <li>Advanced search and filtering: Utilize advanced search tools to filter results based on specific criteria, such as name, alias, location, or date of birth.</li>
+        <li>Social media analysis: Analyze target individuals' social media profiles, posts, likes, comments, and connections.</li>
+        <li>Social network analysis: Visualize and analyze target individuals' connections, including friends, family, and associates.</li>
+        <li>Sentiment analysis: Analyze target individuals' online communications to identify potential emotions or motivations.</li>
+        <li>Data visualization: Display search results, network connections, geolocation data, and other information in an easy-to-understand format.</li>
+        <li>Collaboration and sharing: Share information and collaborate with team members on specific targets or cases.</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <h2>Dedicated Research Services</h2>
+      <p>In addition to the powerful software platform, PathFinder offers dedicated research services performed by a team of skilled researchers. These services include background checks, due diligence, competitive intelligence, and more, tailored to the client's specific needs.</p>
+    </div>
+    <div class="panel">
+      <h2>Advanced Analytical Capabilities</h2>
+      <p>PathFinder incorporates advanced analytical techniques, such as Root Cause Analysis (RCA), Iterative Questioning, SWOT Analysis, Failure Mode and Effects Analysis (FMEA), Pareto Charts, and Fault Tree Analysis (FTA). These tools enable in-depth analysis and identification of root causes, strengths, weaknesses, opportunities, and threats.</p>
+    </div>
+  </main>
+  <footer>
+    &copy; PathFinder
+  </footer>
+  <div class="theme-switcher" onclick="toggleTheme()">
+    Switch Theme
+  </div>
+
+  <script>
+    function toggleTheme() {
+      document.body.classList.toggle("dark-theme");
+    }
+  </script>
+</body>
+</html>

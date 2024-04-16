@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Professional Chatbot and File Upload Interface</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap">
+  <style>
+    :root {
+      --bg-color: #121212;
+      --text-color: #fff;
+      --panel-bg-color: #333;
+      --panel-border-color: #444;
+      --chat-input-bg-color: #222;
+      --button-bg-color: #0d6efd;
+      --button-text-color: #fff;
+    }
+
+    body {
+      font-family: 'Poppins', sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      margin: 0;
+      padding: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+
+    .container {
+      width: 90vw;
+      max-width: 1200px;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+      display: grid;
+      grid-template-columns: 1fr 3fr;
+      grid-gap: 10px;
+      padding: 20px;
+      background-color: var(--panel-bg-color);
+    }
+
+    .panel {
+      padding: 20px;
+      background-color: var(--panel-bg-color);
+      border: 1px solid var(--panel-border-color);
+      border-radius: 8px;
+      overflow: auto;
+    }
+
+    .chat-display, .upload-section {
+      height: 300px;
+      overflow-y: auto;
+    }
+
+    .chat-input-container, .upload-controls {
+      display: flex;
+      margin-top: 10px;
+    }
+
+    .chat-input, .upload-input {
+      flex-grow: 1;
+      padding: 10px;
+      margin-right: 10px;
+      border: 1px solid var(--panel-border-color);
+      background-color: var(--chat-input-bg-color);
+      color: var(--text-color);
+      border-radius: 4px;
+    }
+
+    .chat-submit, .upload-button {
+      padding: 10px 20px;
+      background-color: var(--button-bg-color);
+      color: var(--button-text-color);
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    .switch-container {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      display: flex;
+      align-items: center;
+    }
+
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 60px;
+      height: 34px;
+      margin-left: 10px;
+    }
+
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #ccc;
+      transition: .4s;
+      border-radius: 34px;
+    }
+
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 26px;
+      width: 26px;
+      left: 4px;
+      bottom: 4px;
+      background-color: white;
+      transition: .4s;
+      border-radius: 50%;
+    }
+
+    input:checked + .slider {
+      background-color: var(--button-bg-color);
+    }
+
+    input:checked + .slider:before {
+      transform: translateX(26px);
+    }
+
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="panel">
+    <h2>Chat with Our Bot</h2>
+    <div class="chat-display" id="chat-display"></div>
+    <div class="chat-input-container">
+      <input type="text" id="chat-input" class="chat-input" placeholder="Type your message here...">
+      <button onclick="sendMessage()" class="chat-submit">Send</button>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>Upload Files</h2>
+    <div class="upload-section">
+      <input type="file" id="file-input" class="upload-input" multiple>
+      <button onclick="uploadFiles()" class="upload-button">Upload</button>
+    </div>
+  </div>
+</div>
+
+<div class="switch-container">
+  <span>Dark Mode:</span>
+  <label class="switch">
+    <input type="checkbox" checked onclick="toggleTheme()">
+    <span class="slider"></span>
+  </label>
+</div>
+
+<script>
+function toggleTheme() {
+  document.body.classList.toggle('dark-theme');
+}
+
+function sendMessage() {
+  var chatDisplay = document.getElementById('chat-display');
+  var chatInput = document.getElementById('chat-input');
+  var message = chatInput.value.trim();
+  if (message) {
+    var userMessageDiv = document.createElement('div');
+    userMessageDiv.textContent = "You: " + message;
+    chatDisplay.appendChild(userMessageDiv);
+
+    // Simulate a bot response
+    var botMessageDiv = document.createElement('div');
+    botMessageDiv.textContent = "Bot: " + getBotResponse(message);
+    chatDisplay.appendChild(botMessageDiv);
+
+    chatInput.value = '';  // Clear input after sending
+    chatDisplay.scrollTop = chatDisplay.scrollHeight;  // Scroll to the bottom
+  }
+}
+
+function getBotResponse(input) {
+  if (input.toLowerCase().includes("hello")) return "Hi there!";
+  return "Sorry, I didn't understand that.";
+}
+
+function uploadFiles() {
+  var input = document.getElementById('file-input');
+  alert('Would upload ' + input.files.length + ' files.');
+}
+
+</script>
+</body>
+</html>
+

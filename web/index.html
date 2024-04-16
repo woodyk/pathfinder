@@ -3,92 +3,54 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Chatbot Interface Mockup</title>
+<title>PathFinder: by SmallRoom Technologies Inc.</title>
 <style>
-    body, html {
-        height: 100%;
-        margin: 0;
-        font-family: Arial, sans-serif;
-        box-sizing: border-box;
-    }
-    .container {
-        display: flex;
-        height: 100%;
-    }
-    .column {
-        flex: 1;
-        padding: 20px;
-        overflow-y: auto;
-        border: 1px solid #ccc;
-    }
-    .left-column, .right-column {
-        background-color: #f4f4f4;
-    }
-    .center-column {
-        background-color: #fff;
-    }
-    .history, .chat-area, .files {
-        border: 1px solid #ccc;
-        margin-top: 20px;
-        padding: 10px;
-        height: 80%;
-        overflow-y: auto;
-    }
-    input[type="text"] {
-        width: 100%;
-        padding: 10px;
-        margin-top: 20px;
-        box-sizing: border-box;
-    }
-    button {
-        padding: 10px;
-        width: 100%;
-        margin-top: 20px;
-        cursor: pointer;
-    }
-    .message {
-        margin: 5px 0;
-        padding: 10px;
-        border-radius: 5px;
-    }
-    .bot {
-        background-color: #d1ecf1;
-        color: #0c5460;
-    }
-    .user {
-        background-color: #bee5eb;
-        color: #0c5460;
-        text-align: right;
-    }
+  body, html {
+    height: 100%;
+    margin: 0;
+  }
+  .bg-image {
+    /* Full height */
+    height: 100%; 
+    
+    /* Center and scale the image nicely */
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: cover;
+  }
 </style>
 </head>
 <body>
-<div class="container">
-    <div class="column left-column">
-        <input type="text" placeholder="Search history...">
-        <div class="history">
-            <p>History Entry 1</p>
-            <p>History Entry 2</p>
-            <!-- Add more as needed -->
-        </div>
-    </div>
-    <div class="column center-column">
-        <div class="chat-area">
-            <div class="message bot">Hello, how can I help you today?</div>
-            <div class="message user">Can you show me the latest files?</div>
-            <!-- Add more messages as needed -->
-        </div>
-        <input type="text" placeholder="Type your message...">
-    </div>
-    <div class="column right-column">
-        <button>Upload File</button>
-        <div class="files">
-            <p>File 1.pdf</p>
-            <p>File 2.docx</p>
-            <!-- Add more files as needed -->
-        </div>
-    </div>
-</div>
+
+<div class="bg-image" id="random-bg"></div>
+
+<script>
+  // List of images to choose from
+  const images = [
+    'pathfinder.webp',
+    'pathfinder2.webp',
+    'pathfinder3.webp',
+    'pathfinder4.webp',
+    'pathfinder5.webp',
+    'pathfinder6.webp',
+    'pathfinder7.webp',
+    'pathfinder8.webp',
+    // ... add more images as necessary
+  ];
+
+  // Function to return a random image from the list
+  function getRandomImage(imgArray) {
+    const randomIndex = Math.floor(Math.random() * imgArray.length);
+    return imgArray[randomIndex];
+  }
+
+  // Set the random background image
+  window.onload = function() {
+    const bgDiv = document.getElementById('random-bg');
+    bgDiv.style.backgroundImage = 'url(' + getRandomImage(images) + ')';
+  };
+</script>
+
 </body>
 </html>
 

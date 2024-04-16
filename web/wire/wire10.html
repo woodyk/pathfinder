@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PathFinder Interface</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-color: #f8f8f8;
+      --text-color: #333;
+      --panel-bg-color: #fff;
+      --panel-border-color: #ddd;
+      --chatbot-bg-color: #fff;
+      --chatbot-border-color: #007bff;
+    }
+    .dark-theme {
+      --bg-color: #121212;
+      --text-color: #e0e0e0;
+      --panel-bg-color: #333;
+      --panel-border-color: #444;
+      --chatbot-bg-color: #2a2a2a;
+      --chatbot-border-color: #007bff;
+    }
+    body {
+      font-family: 'Poppins', sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      margin: 0;
+      padding: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      transition: background-color 0.3s ease;
+    }
+    .container {
+      width: 80%;
+      max-width: 1200px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .panel {
+      background-color: var(--panel-bg-color);
+      border: 1px solid var(--panel-border-color);
+      padding: 20px;
+      border-radius: 10px;
+    }
+    .chatbot-container {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      width: 300px;
+      height: 400px;
+      background-color: var(--chatbot-bg-color);
+      border: 2px solid var(--chatbot-border-color);
+      border-radius: 10px;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      z-index: 1000;
+    }
+    .theme-switcher {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      cursor: pointer;
+    }
+    /* Additional styles for chatbot, file browser, and other elements */
+  </style>
+</head>
+<body class="light-theme">
+  <div class="container">
+    <!-- File Browser Panel -->
+    <div class="panel">
+      <h2>File Browser</h2>
+      <!-- File browser content -->
+    </div>
+    <!-- Additional panels or content can be added here -->
+  </div>
+  <!-- Chatbot Container -->
+  <div class="chatbot-container" id="chatbot-container">
+    <!-- Chatbot content -->
+  </div>
+  <!-- Theme Switcher -->
+  <div class="theme-switcher" onclick="toggleTheme()">
+    Switch Theme
+  </div>
+
+  <script>
+    function toggleTheme() {
+      document.body.classList.toggle("dark-theme");
+    }
+    // JavaScript for draggable chatbot window
+    // JavaScript for chatbot functionality
+    // JavaScript for file browser functionality
+  </script>
+</body>
+</html>
