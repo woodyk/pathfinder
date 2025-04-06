@@ -1,1 +1,46 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+myenv/
+
+# C extensions
+*.so
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Virtual environments
+venv/
+.venv/
+ENV/
+
+# Local development settings
+*.sqlite3
+local_settings.py
+
+# IDE files
+.idea/
+.vscode/
+*.sublime-*
+
+# Log files
+*.log
+
+# Other
+*.pyc
 .DS_Store
+
+# Vim artifacts
+*.swp
+*.swo
+
+# conversations
+conversations/**
+
+# models
+gpt2_finetuned
+.grit/
