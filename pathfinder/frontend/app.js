@@ -114,10 +114,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const loadingDiv = document.createElement('div');
         loadingDiv.className = 'message assistant loading';
         loadingDiv.innerHTML = `
-            <div class="loading-dots">
-                <span></span>
-                <span></span>
-                <span></span>
+            <div class="loading-content">
+                <span class="loading-text">Thinking</span>
+                <div class="loading-dots">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
             </div>
         `;
         chatMessages.appendChild(loadingDiv);
@@ -127,7 +130,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Remove loading indicator
     function removeLoading(loadingDiv) {
-        loadingDiv.remove();
+        if (loadingDiv) {
+            loadingDiv.remove();
+        }
+    }
+
+    // Update loading text
+    function updateLoadingText(loadingDiv, text) {
+        if (loadingDiv) {
+            const textSpan = loadingDiv.querySelector('.loading-text');
+            if (textSpan) {
+                textSpan.textContent = text;
+            }
+        }
     }
 
     // Clear chat history
@@ -785,6 +800,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Handle keyboard navigation
     function handleFileTreeKeydown(e) {
+        // Don't process keypresses when focused on chat input or other inputs
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+            return;
+        }
+        
         const treeContainer = document.getElementById('file-tree');
         if (!treeContainer) return;
         
@@ -1221,42 +1241,58 @@ document.addEventListener('DOMContentLoaded', () => {
             pendingAttachments = [];
             updateFileAttachments();
 
-            // Remove loading indicator
-            removeLoading(loadingDiv);
-
-            // Create assistant message container
-            const assistantMessage = document.createElement('div');
-            assistantMessage.className = 'message assistant';
-            const contentDiv = document.createElement('div');
-            contentDiv.className = 'markdown-content';
-            assistantMessage.appendChild(contentDiv);
-            chatMessages.appendChild(assistantMessage);
+            let accumulatedText = '';
+            let assistantMessage = null;
+            let contentDiv = null;
 
             // Stream the response
             const reader = response.body.getReader();
-            let accumulatedText = '';
-
             while (true) {
                 const { done, value } = await reader.read();
                 if (done) break;
 
                 // Convert the chunk to text
                 const chunk = new TextDecoder().decode(value);
-                accumulatedText += chunk;
                 
-                // Update the message with the accumulated text
-                contentDiv.innerHTML = marked.parse(accumulatedText);
+                try {
+                    // Check if this is a tool call notification
+                    const notification = JSON.parse(chunk);
+                    if (notification.type === 'tool_call') {
+                        if (notification.status === 'started') {
+                            updateLoadingText(loadingDiv, `Using ${notification.tool_name}`);
+                        } else if (notification.status === 'completed') {
+                            updateLoadingText(loadingDiv, 'Thinking...');
+                        }
+                        continue; // Skip processing this chunk as content
+                    }
+                } catch (e) {
+                    // Not a JSON notification, treat as regular content
+                    if (!assistantMessage) {
+                        // Create assistant message container on first content
+                        assistantMessage = document.createElement('div');
+                        assistantMessage.className = 'message assistant';
+                        contentDiv = document.createElement('div');
+                        contentDiv.className = 'markdown-content';
+                        assistantMessage.appendChild(contentDiv);
+                        
+                        // Replace loading indicator with assistant message
+                        loadingDiv.replaceWith(assistantMessage);
+                    }
+                    accumulatedText += chunk;
+                }
                 
-                // Highlight code blocks
-                assistantMessage.querySelectorAll('pre code').forEach((block) => {
-                    hljs.highlightBlock(block);
-                });
-                
-                chatMessages.scrollTop = chatMessages.scrollHeight;
+                if (contentDiv) {
+                    // Update the message with the accumulated text
+                    contentDiv.innerHTML = marked.parse(accumulatedText);
+                    
+                    // Highlight code blocks
+                    assistantMessage.querySelectorAll('pre code').forEach((block) => {
+                        hljs.highlightBlock(block);
+                    });
+                    
+                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                }
             }
-
-            // Refresh file tree after interaction is complete
-            refreshFileTree();
         } catch (error) {
             removeLoading(loadingDiv);
             addMessage('Error: ' + error.message, 'error', true);
@@ -1274,6 +1310,7 @@ document.addEventListener('DOMContentLoaded', () => {
     chatInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
+            e.stopPropagation(); // Prevent event from bubbling up to document
             sendMessage();
         }
     });

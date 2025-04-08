@@ -20,6 +20,7 @@ from werkzeug.utils import secure_filename
 
 from .interactor import Interactor
 from .textextract import extract_text
+from .tools.search_google import search_google
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
@@ -46,6 +47,7 @@ def get_interactor() -> Interactor:
     global interactor
     if interactor is None:
         interactor = Interactor(stream=True, tools=True)
+        interactor.add_function(search_google, name="search_google", description="Search the web for information")  
     return interactor
 
 
