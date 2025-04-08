@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PathFinder IRE</title>
+    <link rel="stylesheet" href="styles.css">
+    <!-- Add marked library for markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Add highlight.js for code syntax highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Left Pane - File Explorer -->
+        <div class="pane file-explorer">
+            <div class="pane-header">
+                <h2>File Explorer</h2>
+                <div class="pane-header-controls">
+                    <button class="header-button" id="upload-file" title="Upload File">
+                        <svg viewBox="0 0 24 24">
+                            <path fill="currentColor" d="M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z"/>
+                        </svg>
+                    </button>
+                    <button class="header-button" id="new-folder" title="New Folder">
+                        <svg viewBox="0 0 24 24">
+                            <path fill="currentColor" d="M13 19C13 19.34 13.04 19.67 13.09 20H4C2.9 20 2 19.11 2 18V6C2 4.89 2.89 4 4 4H10L12 6H20C21.1 6 22 6.89 22 8V13.81C21.39 13.46 20.72 13.22 20 13.09V8H4V18H13.09C13.04 18.33 13 18.66 13 19M20 18V15H18V18H15V20H18V23H20V20H23V18H20Z"/>
+                        </svg>
+                    </button>
+                    <button class="header-button" id="refresh-files" title="Refresh">
+                        <svg viewBox="0 0 24 24">
+                            <path fill="currentColor" d="M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <div class="pane-content">
+                <div class="file-explorer-search">
+                    <input type="text" class="search-input" id="file-search" placeholder="Search files...">
+                </div>
+                <div class="file-tree-container">
+                    <div class="file-tree" id="file-tree">
+                        <!-- File tree will be populated dynamically -->
+                    </div>
+                </div>
+                <div class="preview-resize-handle"></div>
+                <div class="preview-panel" id="preview-panel">
+                    <!-- File preview and metadata will be shown here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Center Pane - AI Chat -->
+        <div class="pane ai-chat">
+            <div class="pane-header">
+                <h2>AI Assistant</h2>
+                <div class="chat-controls">
+                    <button id="clear-chat" class="icon-button" title="Clear Chat">
+                        <svg viewBox="0 0 24 24" width="16" height="16">
+                            <path fill="currentColor" d="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <div class="pane-content">
+                <div class="chat-messages">
+                    <!-- Messages will be added here dynamically -->
+                </div>
+                <div class="chat-input-container">
+                    <div class="chat-input">
+                        <div class="file-attachments"></div>
+                        <div class="input-area">
+                            <textarea placeholder="Type your message here... (Shift+Enter for new line)"></textarea>
+                            <div class="input-modifiers">
+                                <button class="modifier-button attachment-button" aria-label="Add attachment">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                                    </svg>
+                                </button>
+                                <button id="send-button" class="modifier-button send-button" title="Send message">
+                                    <svg viewBox="0 0 24 24" width="20" height="20">
+                                        <path fill="currentColor" d="M3,20V4L22,12L3,20M5,17L16.85,12L5,7V10.5L11,12L5,13.5V17Z"/>
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Pane - Tools -->
+        <div class="pane tools">
+            <div class="pane-header">
+                <h2>Tool Widgets</h2>
+                <div class="pane-header-controls"></div>
+            </div>
+            <div class="pane-content">
+                <!-- Tools widgets will go here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Theme Toggle Switch -->
+    <div class="theme-toggle-container">
+        <svg class="theme-toggle-icon" viewBox="0 0 24 24">
+            <path fill="currentColor" d="M12,18C11.11,18 10.26,17.8 9.5,17.45C11.56,16.5 13,14.42 13,12C13,9.58 11.56,7.5 9.5,6.55C10.26,6.2 11.11,6 12,6A6,6 0 0,1 18,12A6,6 0 0,1 12,18M20,8.69V4H15.31L12,0.69L8.69,4H4V8.69L0.69,12L4,15.31V20H8.69L12,23.31L15.31,20H20V15.31L23.31,12L20,8.69Z"/>
+        </svg>
+        <label class="theme-toggle">
+            <input type="checkbox" id="theme-toggle-input">
+            <span class="theme-toggle-slider"></span>
+        </label>
+        <svg class="theme-toggle-icon" viewBox="0 0 24 24">
+            <path fill="currentColor" d="M12,7A5,5 0 0,1 17,12A5,5 0 0,1 12,17A5,5 0 0,1 7,12A5,5 0 0,1 12,7M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9M12,2L14.39,5.42C13.65,5.15 12.84,5 12,5C11.16,5 10.35,5.15 9.61,5.42L12,2M3.34,7L7.5,6.65C6.9,7.16 6.36,7.78 5.94,8.5C5.5,9.24 5.25,10 5.11,10.79L3.34,7M3.36,17L5.12,13.23C5.26,14 5.53,14.78 5.95,15.5C6.37,16.24 6.91,16.86 7.5,17.37L3.36,17M20.65,7L18.88,10.79C18.74,10 18.47,9.23 18.05,8.5C17.63,7.78 17.1,7.15 16.5,6.64L20.65,7M20.64,17L16.5,17.36C17.09,16.85 17.62,16.22 18.04,15.5C18.46,14.77 18.73,14 18.87,13.21L20.64,17M12,22L9.59,18.56C10.33,18.83 11.14,19 12,19C12.82,19 13.63,18.83 14.37,18.56L12,22Z"/>
+        </svg>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html> 

@@ -44,3 +44,5 @@ conversations/**
 # models
 gpt2_finetuned
 .grit/
+pathfinder/frontend/user_data/*
+pathfinder/uploads

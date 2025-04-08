@@ -1,0 +1,187 @@
+"""
+    Project: PathFinder - Integrated Research Environment (IRE)
+    Author: Wadih Khairallah
+    Contact: wadih@smallroom.com
+    File Type: LLM Prompt / Configuration Descriptor
+    Context: Self-hosted modular research and intelligence-gathering platform
+
+    --------------------------------------------------------------------------------
+    PURPOSE & SESSION CONTEXT
+    --------------------------------------------------------------------------------
+
+    PathFinder is a self-hosted, AI-assisted, goal-centric research environment
+    designed to support open-source intelligence (OSINT), personal investigations,
+    technical development projects, and structured research workflows. This project
+    replaces generic note-taking and research workflows with a centralized platform
+    that enables users to define their goal, collect all relevant data, and organize
+    it around that goal using automation and AI agents.
+
+    This file serves as an LLM prompt descriptor for use in future sessions with
+    humans or models. It summarizes the current architectural vision, configuration
+    standards, methodology, and guiding philosophy behind PathFinder to ensure
+    accurate continuity and extendability.
+
+    --------------------------------------------------------------------------------
+    ARCHITECTURE & COMPONENTS
+    --------------------------------------------------------------------------------
+
+    1. Web-Based Frontend
+        - Built as a rich interactive web UI (React/SvelteKit).
+        - IDE-like structure with:
+            - Left pane: File explorer
+            - Center pane: Chat/command assistant
+            - Right pane: Tool widgets (data visualizer, PII viewer, plugin manager)
+
+    2. Modular Backend
+        - FastAPI or equivalent Python server framework.
+        - Ingestion engine supports multi-format files (PDF, DOCX, images, video).
+        - Task-based LLM chains (LangChain or custom) for:
+            - Goal definition
+            - GII extraction
+            - Summarization
+            - Insight generation
+        - LLM compatibility via dynamic API interface:
+            - Supports OpenAI, Ollama, Anthropic, Grok, DeepSeek
+            - "Bring your own key" infrastructure
+
+    3. Storage & Indexing
+        - File storage: Local filesystem in structured project directories
+        - Structured DB: SQLite for metadata and project structure
+        - Vector DB: ChromaDB, FAISS, or Weaviate for semantic search
+        - Unstructured data stored in canonical folders per file/media type
+
+    4. Core Components
+        - GoalRefinerChain: Defines the project goal via multi-stage prompting
+        - GIIExtractorChain: Extracts Goal Identified Information using the goal as anchor
+        - SummarizerChain: Condenses documents, web pages, transcripts
+        - InsightAgentChain: Formulates questions and answers based on data and goal
+        - Plugin Loader: Supports domain-specific extractors and external tools
+
+    5. Plugin / Extension Framework
+        - JSON manifest for each plugin, includes:
+            - Triggers (filetype, keyword, pattern)
+            - UI modules
+            - Backend methods
+        - Plugin types:
+            - Extractors (PII, GII, technical domains)
+            - Custom crawlers
+            - Visual widgets
+            - LLM tool callers (e.g., OCR, URL fetcher, graph builder)
+
+    --------------------------------------------------------------------------------
+    METHODOLOGIES & CONVENTIONS
+    --------------------------------------------------------------------------------
+
+    - Modular, extensible architecture for isolated development and easy injection
+    - Prompt Chains are composable and named consistently:
+        - Always suffix with 'Chain' (e.g., GoalRefinerChain, SummarizerChain)
+    - Each project encapsulated in a project root directory
+        - /docs
+        - /audio
+        - /images
+        - /video
+        - /raw
+        - /indexed
+    - Semantic search + keyword match hybrid approach
+    - All data is contextually linked to the original goal
+    - Plugins defined via JSON manifest format with:
+        - name
+        - description
+        - entrypoint
+        - triggers
+        - input/output types
+
+    --------------------------------------------------------------------------------
+    FUNCTIONALITY HIGHLIGHTS
+    --------------------------------------------------------------------------------
+
+    - Guided goal definition with intelligent AI prompts
+    - PII + GII extraction from all supported data types
+    - Semantic document review with highlights tied to user goal
+    - URL ingestion with depth-controlled crawling and summarization
+    - Goal-aware summarization and insight surfacing
+    - Task auto-suggestions based on content gaps and dependencies
+    - Report generation with full traceability to source data
+    - Local vector search and file annotation features
+    - Kanban-style TODO board linked to task extraction
+    - Support for multi-model LLM access via user-configured APIs
+    - Shared plugin system for community or custom tools
+
+    --------------------------------------------------------------------------------
+    NAMING & CONVENTIONS
+    --------------------------------------------------------------------------------
+
+    - Project Name: PathFinder
+    - Session Model: "Integrated Research Environment (IRE)"
+    - Key Concept: GII (Goal Identified Information)
+    - Project Structure: Every project lives in a structured directory
+    - Plugin Naming: Use kebab-case (e.g., pii-extractor, electronics-notes)
+    - Prompt Chain Naming: CamelCase with 'Chain' suffix
+    - Assistants: Can be task-specific or project-global
+    - LLM roles: Assistant (conversational) vs Agent (autonomous executor)
+
+    --------------------------------------------------------------------------------
+    ASSISTANT FINDINGS
+    --------------------------------------------------------------------------------
+
+    - PII + GII extraction as separate flows provides flexibility across use cases.
+    - Prompt chains are the core of model integration—this is where value is encoded.
+    - Support for both traditional OSINT and broader research goals (like building hardware)
+      is key to keeping PathFinder general-purpose and goal-driven.
+    - Making the goal definition step central ensures every tool stays focused.
+    - Plugin system should be minimal at first, but designed for maximum extensibility.
+    - Integration with tools like OCR, transcription, and crawler utilities
+      are high-leverage automation points.
+    - Keeping LLM-agnostic interfaces (via user API key input) ensures portability and
+      compliance with a wide user base.
+
+    --------------------------------------------------------------------------------
+    EXTENSION GUIDELINES
+    --------------------------------------------------------------------------------
+
+    - All new functionality should:
+        - Be tied to goal relevance (annotate results with goal entity linkage)
+        - Use existing chains or extend them with clear modularity
+        - Respect the plugin manifest schema
+    - Plugin submissions should include:
+        - A test set
+        - Trigger examples
+        - Optional UI panel if applicable
+    - New LLM chains should follow existing naming and interface conventions
+    - Any user interface component should fit into the panel/widget system of the UI
+
+    --------------------------------------------------------------------------------
+    SCHEMAS & STRUCTURES USED
+    --------------------------------------------------------------------------------
+
+    Plugin Manifest (JSON):
+        {
+            "name": "pii-extractor",
+            "description": "Extracts personal identifiable information",
+            "entrypoint": "extractors/pii.py",
+            "triggers": ["*.pdf", "*.txt"],
+            "input_type": "text",
+            "output_type": "json"
+        }
+
+    Goal Structure:
+        {
+            "goal_id": "uuid",
+            "title": "Build a LoRa Weather Station",
+            "description": "Gather components, techniques, and schematics...",
+            "entities": ["ESP32", "SX1276", "solar panel"],
+            "metrics": ["range > 5km", "battery life > 1 week"]
+        }
+
+    --------------------------------------------------------------------------------
+    FORMATTING NOTES
+    --------------------------------------------------------------------------------
+
+    - Keep all files in plain text and Markdown-compatible syntax
+    - Wrap content using triple-quotes for LLM visibility
+    - Do not use markup characters that may render incorrectly
+    - Line wrap at 80 characters for max readability
+    - Consistent 4-space indentation preferred
+
+"""
+

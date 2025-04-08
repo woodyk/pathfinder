@@ -1,0 +1,211 @@
+"""
+    PathFinder Web Frontend Prompt Block
+    Author: Wadih Khairallah
+    Contact: wadih@smallroom.com
+    Context: Define the structure, features, and workflow of the PathFinder web
+             frontend interface. This document guides both LLMs and human engineers
+             in building, extending, or maintaining the frontend component of
+             PathFinder—a modular Integrated Research Environment (IRE) for goal-
+             based intelligence and research workflows.
+
+    --------------------------------------------------------------------------------
+    PURPOSE
+    --------------------------------------------------------------------------------
+
+    The PathFinder web frontend is the primary user interface for managing research
+    projects. It provides a desktop-like experience within the browser, emulating
+    features of a modern IDE (such as VSCode) and combining them with AI-enhanced
+    automation, semantic search, document analysis, and dynamic visualization. Its
+    primary function is to serve as an interactive dashboard for managing research
+    goals, uploading and analyzing data, and interacting with assistants and agents.
+
+    This document outlines the required UI panels, workflows, key interactions, and
+    user-facing features needed for the frontend to fully support the PathFinder
+    backend architecture and core concepts.
+
+    --------------------------------------------------------------------------------
+    LAYOUT OVERVIEW
+    --------------------------------------------------------------------------------
+
+    The UI is built around a three-pane model inspired by IDEs:
+
+        ┌──────────────┬───────────────────────────┬────────────────────────────┐
+        │ Left Sidebar │      Main Work Area       │        Right Sidebar       │
+        │──────────────│───────────────────────────│────────────────────────────│
+        │ File Tree     > Document viewer/editor    │ Data tools (PII, GII)      │
+        │ Project list  > AI Assistant chat         │ Plugins / Extractors       │
+        │ Plugin panel  > Task / TODO board         │ Search & Highlight legend  │
+        └──────────────┴───────────────────────────┴────────────────────────────┘
+
+    --------------------------------------------------------------------------------
+    WORKFLOW (END-TO-END)
+    --------------------------------------------------------------------------------
+
+    1. Project Launcher
+        - Button to create a new project or open existing one
+        - Dialog to enter:
+            - Project name
+            - (Optional) Project type template
+            - Description of the goal (raw brain dump)
+        - Trigger backend goal definition chain for AI-guided refinement
+
+    2. Goal Dashboard
+        - View the refined goal document
+        - Display extracted entities, metrics, aliases, related terms
+        - Edit or update the goal (with history/versioning)
+        - View linked TODO list auto-generated from goal
+
+    3. File Upload & Ingestion Panel
+        - Drag/drop or multi-select file uploader
+        - Folder assignment: documents, images, audio, video, etc.
+        - URLs input for crawler queue
+        - Live upload status + processing indicators
+        - Display extracted metadata and file type icons
+
+    4. Semantic Document Viewer
+        - Open any text or PDF file
+        - Highlight PII and GII entities based on project goal
+        - Hover to show extracted metadata and goal relevance
+        - Sidebar to show:
+            - Summary
+            - Source citation
+            - GII/PII breakdown
+
+    5. AI Assistant Interface
+        - Chat panel to interact with goal-aware assistant
+        - Command input supports:
+            - /todo suggest
+            - /summarize [file]
+            - /search [term]
+            - /query [question]
+        - Auto-completion and context hinting
+        - Inline citations when referring to data sources
+
+    6. Search & Semantic Navigation
+        - Global search bar (top navigation)
+        - Search mode toggle: keyword vs. semantic
+        - Results linked to original file and paragraph
+        - Relevance ranking shown beside each result
+
+    7. Tasks & TODO Board
+        - Kanban-style columns: “Suggested”, “In Progress”, “Done”
+        - Tasks can be added manually or via agent/assistant
+        - Each task linked to goal criteria or specific finding
+        - Metadata includes file origin, confidence, and priority
+
+    8. Plugin & Extension UI
+        - List of installed plugins (accordion or tabbed view)
+        - Each plugin panel contains:
+            - Description
+            - Actions or settings
+            - Output or visualization
+        - Plugin data is scoped to current project
+
+    9. Reporting & Export
+        - Report generator wizard:
+            - Choose goal summary, findings, supporting files
+        - Export to:
+            - Markdown
+            - PDF
+            - Shareable HTML archive
+        - Options to include/exclude: citations, tasks, plugin output
+
+    --------------------------------------------------------------------------------
+    COMPONENTS & STATES
+    --------------------------------------------------------------------------------
+
+    - ProjectState
+        {
+            id,
+            name,
+            goal,
+            fileIndex[],
+            tasks[],
+            entities[],
+            pluginsActive[]
+        }
+
+    - FileObject
+        {
+            name,
+            type,
+            path,
+            metadata,
+            extractedText,
+            piiMatches[],
+            giiMatches[]
+        }
+
+    - AssistantPrompt
+        {
+            input,
+            relatedGoal,
+            contextFiles[],
+            response,
+            citations[]
+        }
+
+    - PluginManifest
+        {
+            id,
+            name,
+            description,
+            triggerTypes[],
+            renderWidget (bool),
+            configOptions[]
+        }
+
+    --------------------------------------------------------------------------------
+    UI INTERACTION PRINCIPLES
+    --------------------------------------------------------------------------------
+
+    - Consistency: Layout should feel familiar to IDE users
+    - Responsiveness: Every data upload or command should yield visible feedback
+    - Contextual Awareness: Assistant and visualizations always reflect the current goal
+    - Progressive Disclosure: Advanced tools (plugins, vector queries) only surface when needed
+    - Assistive Guidance: The assistant should nudge users when it detects gaps or errors
+
+    --------------------------------------------------------------------------------
+    STYLISTIC PREFERENCES
+    --------------------------------------------------------------------------------
+
+    - Dark theme by default, toggleable to light
+    - Clean, flat design language with clear visual separation
+    - Prefer semantic components (e.g., buttons = actions, cards = results)
+    - Indicate goal alignment visually (e.g., badges, color coding for relevance)
+    - Avoid modal overuse; prefer side panels and collapsibles
+
+    --------------------------------------------------------------------------------
+    EXTENSION GUIDELINES
+    --------------------------------------------------------------------------------
+
+    - New features should be implemented as pluggable widgets if possible
+    - All UI plugins must:
+        - Respect the current project state
+        - Register their output in the global plugin panel
+        - Include minimal, intuitive configuration UIs
+    - New data types should be routed to the proper previewer (text, table, image, etc.)
+    - Assistant commands should be registered with intent descriptors
+
+    --------------------------------------------------------------------------------
+    ASSISTANT FINDINGS
+    --------------------------------------------------------------------------------
+
+    - The Assistant + Agents are core to workflow acceleration; they must be first-class citizens in the UI.
+    - GII/PII highlighting and citation-based insights make PathFinder uniquely helpful in deep reading tasks.
+    - User-controlled ingestion and crawler configuration are essential for multi-domain research goals.
+    - Kanban task modeling brings natural accountability to otherwise chaotic research.
+    - Plugin framework should allow for visualization and transformation extensions, not just extractors.
+
+    --------------------------------------------------------------------------------
+    FORMATTING NOTES
+    --------------------------------------------------------------------------------
+
+    - Format files in Markdown with clear headers for each major section
+    - Follow semantic indentation rules (4 spaces)
+    - Wrap text to 80 characters for readability
+    - Avoid framework-specific syntax unless scoped in comments
+    - Comment inline JavaScript or React-based components with triple-slash (`///`)
+
+"""
+
