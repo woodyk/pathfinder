@@ -1107,7 +1107,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 const item = document.querySelector(`.file-tree-item[data-path="${path}"]`);
                 const isDirectory = item && item.classList.contains('directory');
 
-                const response = await fetch(`${API_BASE_URL}/api/files/delete`, {
+                if (isDirectory) {
+                    // Check if directory has contents
+                    const response = await fetch(`${API_BASE_URL}/api/files/info?path=${encodeURIComponent(path)}`);
+                    if (!response.ok) throw new Error('Failed to check directory contents');
+                    
+                    const data = await response.json();
+                    if (data.contents && data.contents.length > 0) {
+                        const confirmDeleteContents = confirm(
+                            `Warning: The directory "${path.split('/').pop()}" contains ${data.contents.length} items.\n` +
+                            'This will permanently delete all contents. Are you sure you want to continue?'
+                        );
+                        if (!confirmDeleteContents) continue;
+                    }
+                }
+
+                const deleteResponse = await fetch(`${API_BASE_URL}/api/files/delete`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -1118,14 +1133,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     })
                 });
 
-                if (!response.ok) {
+                if (!deleteResponse.ok) {
                     let errorMessage = 'Failed to delete item';
                     try {
-                        const errorData = await response.json();
+                        const errorData = await deleteResponse.json();
                         errorMessage = errorData.error || errorMessage;
                     } catch (e) {
                         // If response is not JSON, try to get text
-                        const text = await response.text();
+                        const text = await deleteResponse.text();
                         errorMessage = text || errorMessage;
                     }
                     throw new Error(errorMessage);

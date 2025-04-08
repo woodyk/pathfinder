@@ -661,13 +661,13 @@ def get_files_tree():
 
 @app.route('/api/files/info', methods=['GET'])
 def get_file_info():
-    """Get detailed information and preview of a file.
+    """Get detailed information and preview of a file or directory.
     
     Query parameters:
-        path (str): Relative path to the file within user_data
+        path (str): Relative path to the file/directory within user_data
     
     Returns:
-        JSON response with file metadata and preview content
+        JSON response with file/directory metadata and contents
     """
     relative_path = request.args.get('path')
     
@@ -681,14 +681,11 @@ def get_file_info():
             return jsonify({"error": "Invalid path: Must be within user_data directory"}), 403
         
         if not os.path.exists(full_path):
-            return jsonify({"error": "File does not exist"}), 404
+            return jsonify({"error": "Path does not exist"}), 404
         
-        if not os.path.isfile(full_path):
-            return jsonify({"error": "Path is not a file"}), 400
-        
-        # Get file metadata
+        # Get basic metadata
         stat = os.stat(full_path)
-        file_info = {
+        info = {
             "name": os.path.basename(full_path),
             "path": relative_path,
             "size": stat.st_size,
@@ -698,47 +695,114 @@ def get_file_info():
             "is_readable": os.access(full_path, os.R_OK),
             "is_writable": os.access(full_path, os.W_OK),
             "is_executable": os.access(full_path, os.X_OK),
-            "mime_type": None,
-            "preview": None,
-            "preview_type": None
+            "type": "directory" if os.path.isdir(full_path) else "file"
         }
         
-        # Try to determine MIME type
-        import mimetypes
-        mime_type, _ = mimetypes.guess_type(full_path)
-        file_info["mime_type"] = mime_type
-        
-        # Handle preview based on file type
-        if mime_type and mime_type.startswith('image/'):
-            # For images, return the relative path for preview
-            file_info["preview"] = relative_path
-            file_info["preview_type"] = "image"
+        # Handle directory contents
+        if os.path.isdir(full_path):
+            contents = []
+            for entry in os.scandir(full_path):
+                entry_stat = entry.stat()
+                contents.append({
+                    "name": entry.name,
+                    "path": os.path.join(relative_path, entry.name),
+                    "type": "directory" if entry.is_dir() else "file",
+                    "size": entry_stat.st_size,
+                    "modified": entry_stat.st_mtime
+                })
+            info["contents"] = sorted(contents, key=lambda x: (x["type"] == "file", x["name"].lower()))
         else:
-            # For other files, try to read as text
-            try:
-                with open(full_path, 'r', encoding='utf-8') as f:
-                    lines = []
-                    for i, line in enumerate(f):
-                        if i >= 1000:  # Limit to 1000 lines
-                            break
-                        lines.append(line.rstrip('\n'))
-                    file_info["preview"] = '\n'.join(lines)
-                    file_info["preview_type"] = "text"
-            except UnicodeDecodeError:
-                # If not text, try to extract text content
+            # Handle file preview
+            import mimetypes
+            mime_type, _ = mimetypes.guess_type(full_path)
+            info["mime_type"] = mime_type
+            
+            if mime_type and mime_type.startswith('image/'):
+                info["preview"] = relative_path
+                info["preview_type"] = "image"
+            else:
                 try:
-                    extracted_text = extract_text(full_path)
-                    if extracted_text:
-                        file_info["preview"] = extracted_text[:10000]  # Limit to 10000 characters
-                        file_info["preview_type"] = "text"
-                except Exception:
-                    # If all else fails, no preview available
-                    file_info["preview_type"] = "none"
+                    with open(full_path, 'r', encoding='utf-8') as f:
+                        lines = []
+                        for i, line in enumerate(f):
+                            if i >= 1000:  # Limit to 1000 lines
+                                break
+                            lines.append(line.rstrip('\n'))
+                        info["preview"] = '\n'.join(lines)
+                        info["preview_type"] = "text"
+                except UnicodeDecodeError:
+                    try:
+                        extracted_text = extract_text(full_path)
+                        if extracted_text:
+                            info["preview"] = extracted_text[:10000]  # Limit to 10000 characters
+                            info["preview_type"] = "text"
+                    except Exception:
+                        info["preview_type"] = "none"
         
-        return jsonify(file_info)
+        return jsonify(info)
         
     except Exception as e:
-        return jsonify({"error": f"Failed to get file info: {str(e)}"}), 500
+        return jsonify({"error": f"Failed to get info: {str(e)}"}), 500
+
+
+@app.route('/api/files/search', methods=['GET'])
+def search_files():
+    """Search for files and directories in the user_data directory.
+    
+    Query parameters:
+        query (str): Search query (supports wildcards)
+        type (str, optional): Filter by type ('file' or 'directory')
+        recursive (bool, optional): Whether to search recursively (default: True)
+    
+    Returns:
+        JSON response with search results
+    """
+    query = request.args.get('query')
+    file_type = request.args.get('type')
+    recursive = request.args.get('recursive', 'true').lower() == 'true'
+    
+    if not query:
+        return jsonify({"error": "Search query is required"}), 400
+    
+    try:
+        results = []
+        import fnmatch
+        
+        def should_include(entry):
+            if file_type == 'file' and not entry.is_file():
+                return False
+            if file_type == 'directory' and not entry.is_dir():
+                return False
+            return fnmatch.fnmatch(entry.name.lower(), query.lower())
+        
+        def scan_directory(path):
+            try:
+                with os.scandir(path) as entries:
+                    for entry in entries:
+                        if should_include(entry):
+                            results.append({
+                                "name": entry.name,
+                                "path": os.path.relpath(entry.path, app.config['UPLOAD_FOLDER']),
+                                "type": "directory" if entry.is_dir() else "file",
+                                "size": entry.stat().st_size if entry.is_file() else None,
+                                "modified": entry.stat().st_mtime
+                            })
+                        if recursive and entry.is_dir():
+                            scan_directory(entry.path)
+            except Exception as e:
+                print(f"Error scanning directory {path}: {e}")
+        
+        scan_directory(app.config['UPLOAD_FOLDER'])
+        
+        return jsonify({
+            "query": query,
+            "type": file_type,
+            "recursive": recursive,
+            "results": results
+        })
+        
+    except Exception as e:
+        return jsonify({"error": f"Search failed: {str(e)}"}), 500
 
 
 def create_app(test_config=None):
