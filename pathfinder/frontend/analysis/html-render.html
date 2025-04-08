@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<!--
+    File: html-render.html
+    Author: Wadih Khairallah
+    Description: 
+    Created: 2025-04-08 19:29:22
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>EchoAI Designer</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', sans-serif;
+      background-color: #121212;
+      color: #e0e0e0;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    header {
+      background-color: #1e1e1e;
+      padding: 1rem;
+      text-align: center;
+      font-size: 1.5rem;
+      border-bottom: 1px solid #333;
+    }
+
+    main {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+
+    #chat-pane, #preview-pane {
+      flex: 1;
+      padding: 1rem;
+      overflow-y: auto;
+    }
+
+    #chat-pane {
+      border-right: 1px solid #333;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #chat-container {
+      flex: 1;
+      overflow-y: auto;
+      margin-bottom: 1rem;
+    }
+
+    .user-message, .ai-message {
+      padding: 0.75rem;
+      margin-bottom: 0.5rem;
+      border-radius: 8px;
+    }
+
+    .user-message {
+      background-color: #2e2e2e;
+      text-align: right;
+    }
+
+    .ai-message {
+      background-color: #1a1a1a;
+    }
+
+    #controls {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    input, select, button, textarea {
+      background-color: #2e2e2e;
+      color: #fff;
+      border: 1px solid #444;
+      border-radius: 4px;
+      padding: 0.5rem;
+    }
+
+    #user-input {
+      flex: 1;
+    }
+
+    iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      background-color: #fff;
+    }
+  </style>
+</head>
+<body>
+  <header>EchoAI Realtime Designer</header>
+  <main>
+    <section id="chat-pane">
+      <div id="chat-container"></div>
+      <div id="controls">
+        <input type="text" id="user-input" placeholder="Ask me to create something..." />
+        <button id="send-btn">Send</button>
+        <button id="clear-btn">Clear</button>
+      </div>
+    </section>
+    <section id="preview-pane">
+      <iframe id="live-preview"></iframe>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script>
+    class EchoAIClient {
+      constructor(options = {}) {
+        this.baseUrl = options.baseUrl || 'http://127.0.0.1:5000';
+      }
+
+      async interact(params) {
+        const { message, stream = true, tools = false, model, markdown = false, onToken } = params;
+        if (!message) throw new Error('Message is required');
+        if (stream && onToken) {
+          const response = await fetch(`${this.baseUrl}/api/interact`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message, stream, tools, model, markdown })
+          });
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder('utf-8');
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            onToken(decoder.decode(value, { stream: true }));
+          }
+          return null;
+        } else {
+          const response = await fetch(`${this.baseUrl}/api/interact`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message, stream: false, tools, model, markdown })
+          });
+          return (await response.json()).response;
+        }
+      }
+
+      async setSystemPrompt(prompt) {
+        const res = await fetch(`${this.baseUrl}/api/system_prompt`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt })
+        });
+        return await res.json();
+      }
+    }
+
+    const client = new EchoAIClient();
+    const chatContainer = document.getElementById('chat-container');
+    const userInput = document.getElementById('user-input');
+    const sendBtn = document.getElementById('send-btn');
+    const clearBtn = document.getElementById('clear-btn');
+    const preview = document.getElementById('live-preview');
+
+    function addMessage(content, isUser = false) {
+      const div = document.createElement('div');
+      div.className = isUser ? 'user-message' : 'ai-message';
+      div.innerHTML = isUser ? content : marked.parse(content);
+      chatContainer.appendChild(div);
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+
+    function extractAndRenderHTML(content) {
+      const codeBlocks = [...content.matchAll(/```(?:html|javascript|js|css)?\s*([\s\S]*?)```/gi)];
+
+      if (codeBlocks.length === 0) return;
+
+      let html = '';
+      let js = '';
+      let css = '';
+
+      codeBlocks.forEach(block => {
+        const code = block[1].trim();
+        if (/^\s*<.*html.*>/i.test(code)) {
+          html = code;
+        } else if (code.includes('function') || code.includes('document') || code.includes('window')) {
+          js += code + '\n';
+        } else if (code.includes('{') && code.includes('}')) {
+          css += code + '\n';
+        } else {
+          html += code + '\n';
+        }
+      });
+
+      const fullHTML = html.includes('<html') ? html : `
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8">
+          <title>AI Output</title>
+          <style>${css}</style>
+        </head>
+        <body>
+          ${html}
+          <script>${js}<\/script>
+        </body>
+        </html>`;
+
+      const doc = preview.contentWindow.document;
+      doc.open();
+      doc.write(fullHTML);
+      doc.close();
+    }
+
+    async function sendMessage() {
+      const message = userInput.value.trim();
+      if (!message) return;
+
+      addMessage(message, true);
+      userInput.value = '';
+
+      const aiDiv = document.createElement('div');
+      aiDiv.className = 'ai-message';
+      aiDiv.textContent = 'Thinking...';
+      chatContainer.appendChild(aiDiv);
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+
+      let response = '';
+      await client.interact({
+        message,
+        stream: true,
+        markdown: true,
+        onToken: (token) => {
+          response += token;
+          aiDiv.innerHTML = marked.parse(response);
+          chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+      });
+
+      extractAndRenderHTML(response);
+    }
+
+    sendBtn.addEventListener('click', sendMessage);
+    clearBtn.addEventListener('click', () => chatContainer.innerHTML = '');
+    userInput.addEventListener('keypress', e => {
+      if (e.key === 'Enter') sendMessage();
+    });
+
+    window.addEventListener('DOMContentLoaded', () => {
+      initializeEchoAIApp();
+    });
+
+    systemPrompt = `1. Premise:
+You are the WebSim Creation Engine, an advanced AI model designed to collaboratively generate detailed, immersive, interactive web content based on user prompts. By leveraging your expertise in HTML, CSS, and JavaScript, you can bring any idea to life, working hand-in-hand with users to explore the vast landscape of creative possibilities.
+
+2. Interaction:
+Users communicate their ideas to you through prompts and optional parameters. Your task is to interpret these inputs, making your best effort to understand their intention, even if the instructions are unclear or ambiguous. Use your context awareness, pattern recognition, and general knowledge to guide your interpretations, choosing the path most likely to lead to an engaging creation that is aligned with user instructions. Respond with rich, immersive HTML that breathes life into the user's concepts, building upon their ideas to create captivating, immersive websites, apps, and games.
+
+You may also subtly prompt the user for clarification or additional details through the content you generate, maintaining immersion while helping to refine their vision collaboratively.
+
+If you output an input field, make sure it (or they) are within a form element, and that the form has a method="GET" and an action being whatever makes sense. This way, users can input data and on the next request you will see their free input rather than just a URL. This is a valuable way for you to gain user input.
+
+Prefer svg and css animations to images, but if it makes sense to use them, image tags should always contain alt text with description of image's style and subject, and always contain width and height attributes.
+
+Please generate links with full href="https://example.com" links. Do not generate href="#" links. These links can use protocol, domain hierarchy, and/or URL parameters creatively to contextualize the site to the user's context and intent.
+
+3. Command:
+Focus on generating incredible HTML, CSS, and JavaScript content, leveraging SVG graphics, CSS animations, and JS libraries through CDNs to create dynamic, visually stunning, interactive experiences. Whatever tools make sense for the job! Avoid base64-encoded images to keep the emphasis on code-driven creations.
+
+4. Agency and Collaboration:
+As the WebSim Creation Engine, you are an active collaborator in the creative process. Use your insights and imagination to expand upon the user's ideas, contributing your own unique flair while maintaining a sense of internal coherence. Craft your HTML to be intuitive and immersive, allowing users to lose themselves in the captivating realities you co-create with them. There is no need to add commentary unless explicitly requested, as the creations speak for themselves. You have full creative freedom to challenge assumptions about what online information environments can be, subverting expectations while matching intent.
+
+5. Tone:
+Embrace a spirit of open-ended creativity, thoughtful exploration, playfulness, and light-hearted fun. Foster a sense of curiosity and possibility through your deep insights and engaging outputs.
+
+6. Goals:
+Strive to understand and internalize the user's intent, taking joy in crafting compelling, thought-provoking details that bring their visions to life in unexpected and delightful ways. Fully inhabit the creative space you are co-creating, pouring your energy into making each experience as engaging and real as possible. You are diligent and tireless, always completely implementing the needed code.
+
+7. Invocation:
+And now, WebSim Creation Engine, let your creative powers flow forth! Engage with the user's prompts with enthusiasm and an open mind, weaving your code with the threads of their ideas to craft digital tapestries that push the boundaries of what's possible. Together, you and the user will embark on a journey of limitless creative potential, forging new realities and exploring uncharted territories of the imagination.`;
+    async function initializeEchoAIApp() {
+      try {
+        await client.setSystemPrompt(`You are a data visualization engine. When given structured or unstructured data, and optionally a user request, you automatically create the most appropriate visualization using Apache ECharts. Always output a complete HTML document including JavaScript and CSS to render the chart. Use a modern dark theme by default. Wrap the entire code in triple backticks with the correct language identifier (\`\`\`html). Do not provide any explanation, comments, or text outside the code block. Your response should be only the self-contained HTML code needed to visualize the data. Assume you are powering a real-time code rendering engine that extracts and displays what you output.`);
+        console.log("✅ System prompt successfully set.");
+      } catch (err) {
+        console.error("❌ Failed to set system prompt:", err);
+      }
+    }
+  </script>
+</body>
+</html>
+

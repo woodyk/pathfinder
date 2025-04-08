@@ -5,11 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PathFinder IRE</title>
     <link rel="stylesheet" href="styles.css">
-    <!-- Add marked library for markdown rendering -->
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Replace marked with markdown-it -->
+    <script src="https://cdn.jsdelivr.net/npm/markdown-it@13.0.1/dist/markdown-it.min.js"></script>
     <!-- Add highlight.js for code syntax highlighting -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github-dark.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <!-- Add markdown-it plugins -->
+    <script src="https://cdn.jsdelivr.net/npm/markdown-it-emoji@2.0.2/dist/markdown-it-emoji.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/markdown-it-task-lists@2.1.1/dist/markdown-it-task-lists.min.js"></script>
 </head>
 <body>
     <div class="app-container">
@@ -54,7 +57,7 @@
         <!-- Center Pane - AI Chat -->
         <div class="pane ai-chat">
             <div class="pane-header">
-                <h2>AI Assistant</h2>
+                <h2>PathFinder</h2>
                 <div class="chat-controls">
                     <button id="clear-chat" class="icon-button" title="Clear Chat">
                         <svg viewBox="0 0 24 24" width="16" height="16">
@@ -94,7 +97,7 @@
         <!-- Right Pane - Tools -->
         <div class="pane tools">
             <div class="pane-header">
-                <h2>Tool Widgets</h2>
+                <h2>Data Analysis</h2>
                 <div class="pane-header-controls"></div>
             </div>
             <div class="pane-content">

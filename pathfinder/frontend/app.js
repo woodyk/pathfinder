@@ -44,17 +44,49 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // Configure marked options
-    marked.setOptions({
-        highlight: function(code, lang) {
+    // Configure markdown-it options
+    const md = window.markdownit({
+        html: true,
+        linkify: true,
+        typographer: true,
+        breaks: false, // Disable automatic line breaks
+        maxNesting: 20,
+        highlight: function (str, lang) {
             if (lang && hljs.getLanguage(lang)) {
-                return hljs.highlight(code, { language: lang }).value;
+                try {
+                    return hljs.highlight(str, { language: lang }).value;
+                } catch (__) {}
             }
-            return hljs.highlightAuto(code).value;
-        },
-        breaks: true,
-        gfm: true
+            return ''; // use external default escaping
+        }
     });
+
+    // Add custom renderer rules to control spacing
+    md.renderer.rules.paragraph_open = function() {
+        return '<p style="margin: 0.25em 0;">';
+    };
+
+    md.renderer.rules.list_item_open = function() {
+        return '<li style="margin: 0.1em 0;">';
+    };
+
+    md.renderer.rules.heading_open = function(tokens, idx) {
+        const level = tokens[idx].tag;
+        return `<h${level} style="margin: 0.5em 0 0.25em 0;">`;
+    };
+
+    // Add rule to control spacing between list items
+    md.renderer.rules.bullet_list_open = function() {
+        return '<ul style="margin: 0.25em 0;">';
+    };
+
+    md.renderer.rules.ordered_list_open = function() {
+        return '<ol style="margin: 0.25em 0;">';
+    };
+
+    // Use markdown-it plugins
+    md.use(window.markdownitEmoji);
+    md.use(window.markdownitTaskLists);
 
     // Initialize textarea height
     function initTextarea() {
@@ -94,7 +126,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Create a container for the markdown content
             const contentDiv = document.createElement('div');
             contentDiv.className = 'markdown-content';
-            contentDiv.innerHTML = marked.parse(text);
+            contentDiv.innerHTML = md.render(text);
             messageDiv.appendChild(contentDiv);
 
             // Highlight code blocks
@@ -1261,7 +1293,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (notification.status === 'started') {
                             updateLoadingText(loadingDiv, `Using ${notification.tool_name}`);
                         } else if (notification.status === 'completed') {
-                            updateLoadingText(loadingDiv, 'Thinking...');
+                            updateLoadingText(loadingDiv, 'Thinking');
                         }
                         continue; // Skip processing this chunk as content
                     }
@@ -1283,7 +1315,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 if (contentDiv) {
                     // Update the message with the accumulated text
-                    contentDiv.innerHTML = marked.parse(accumulatedText);
+                    contentDiv.innerHTML = md.render(accumulatedText);
                     
                     // Highlight code blocks
                     assistantMessage.querySelectorAll('pre code').forEach((block) => {
@@ -1828,8 +1860,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     const clearButton = document.createElement('div');
                     clearButton.className = 'search-clear-button';
                     clearButton.innerHTML = `
-                        <svg viewBox="0 0 24 24" width="16" height="16">
-                            <path fill="currentColor" d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"/>
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
                         </svg>
                     `;
                     searchInput.parentNode.appendChild(clearButton);
@@ -1839,7 +1872,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         const query = e.target.value.trim();
                         if (query) {
                             handleFileSearch(query);
-                            clearButton.style.display = 'block';
+                            clearButton.style.display = 'flex';
                         } else {
                             refreshFileTree();
                             clearButton.style.display = 'none';
@@ -1852,12 +1885,13 @@ document.addEventListener('DOMContentLoaded', () => {
                         searchInput.placeholder = 'Search files...';
                         clearButton.style.display = 'none';
                         refreshFileTree();
+                        searchInput.focus(); // Add focus back to the input after clearing
                     });
 
                     // Show/hide clear button based on input
                     searchInput.addEventListener('focus', () => {
                         if (searchInput.value) {
-                            clearButton.style.display = 'block';
+                            clearButton.style.display = 'flex';
                         }
                     });
 

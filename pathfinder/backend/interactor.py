@@ -17,7 +17,6 @@ import subprocess
 import inspect
 import argparse
 import tiktoken
-import threading
 from rich import print
 from rich.prompt import Confirm
 from rich.console import Console
@@ -58,8 +57,6 @@ class Interactor:
         self.history = []
         self.context_length = context_length
         self.encoding = None
-        self._history_lock = threading.Lock()  # Lock for thread-safe history access
-        self._interaction_lock = threading.Lock()  # Lock for thread-safe interactions
         self.providers = {
             "openai": {
                 "base_url": "https://api.openai.com/v1",
@@ -305,162 +302,155 @@ class Interactor:
         if not user_input:
             return None
 
-        # Acquire the interaction lock to prevent concurrent interactions
-        with self._interaction_lock:
-            # Check token length of user input
-            if self.encoding:
-                input_tokens = len(self.encoding.encode(user_input))
-                if input_tokens > self.context_length:
-                    print(f"[red]User Input exceeds max context length:[/red] {self.context_length}")
-                    return
+        # Check token length of user input
+        if self.encoding:
+            input_tokens = len(self.encoding.encode(user_input))
+            if input_tokens > self.context_length:
+                print(f"[red]User Input exceeds max context length:[/red] {self.context_length}")
+                return
 
-            # Switch model if provided and different from current model.
-            if model:
-                provider, model_name = model.split(":", 1)
-                if provider != self.provider or model_name != self.model:
-                    self._setup_client(model)
-                    self._setup_encoding()  # Update encoding for the new model.
-                self.provider = provider
-                self.model = model_name
+        # Switch model if provided and different from current model.
+        if model:
+            provider, model_name = model.split(":", 1)
+            if provider != self.provider or model_name != self.model:
+                self._setup_client(model)
+                self._setup_encoding()  # Update encoding for the new model.
+            self.provider = provider
+            self.model = model_name
 
-            tool_results = ""
-            self.tools_enabled = tools and self.tools_supported
+        tool_results = ""
+        self.tools_enabled = tools and self.tools_supported
 
-            # Add user message and cycle history to stay within context length.
-            with self._history_lock:
-                self.history.append({"role": "user", "content": user_input})
-                exceeded_context = self._cycle_messages()
-                if exceeded_context:
-                    return
+        # Add user message and cycle history to stay within context length.
+        self.history.append({"role": "user", "content": user_input})
+        exceeded_context = self._cycle_messages()
+        if exceeded_context:
+            return
 
-            use_stream = self.stream if stream is None else stream
-            content = ""
-            live = Live(console=console, refresh_per_second=100) if use_stream and markdown and not quiet else None
+        use_stream = self.stream if stream is None else stream
+        content = ""
+        live = Live(console=console, refresh_per_second=100) if use_stream and markdown and not quiet else None
 
-            while True:
-                with self._history_lock:
-                    params = {
-                        "model": self.model,
-                        "messages": self.history,
-                        "stream": use_stream
-                    }
-                if self.tools_supported and self.tools_enabled:
-                    params["tools"] = self.tools
-                    params["tool_choice"] = "auto"
+        while True:
+            params = {
+                "model": self.model,
+                "messages": self.history,
+                "stream": use_stream
+            }
+            if self.tools_supported and self.tools_enabled:
+                params["tools"] = self.tools
+                params["tool_choice"] = "auto"
 
-                try:
-                    response = self.client.chat.completions.create(**params)
-                    tool_calls = []
+            try:
+                response = self.client.chat.completions.create(**params)
+                tool_calls = []
 
-                    if use_stream:
-                        if live:
-                            live.start()
-                        tool_calls_dict = {}
-                        for chunk in response:
-                            delta = chunk.choices[0].delta
-                            finish_reason = chunk.choices[0].finish_reason
+                if use_stream:
+                    if live:
+                        live.start()
+                    tool_calls_dict = {}
+                    for chunk in response:
+                        delta = chunk.choices[0].delta
+                        finish_reason = chunk.choices[0].finish_reason
 
-                            if delta.content:
-                                content += delta.content
-                                # Stream token to callback if provided.
-                                if output_callback:
-                                    output_callback(delta.content)
-                                elif live:
-                                    live.update(Markdown(content))
-                                elif not markdown and not quiet:
-                                    print(delta.content, end="")
-
-                            if delta.tool_calls:
-                                for tool_call_delta in delta.tool_calls:
-                                    index = tool_call_delta.index
-                                    if index not in tool_calls_dict:
-                                        tool_calls_dict[index] = {"id": None, "function": {"name": "", "arguments": ""}}
-                                    if tool_call_delta.id:
-                                        tool_calls_dict[index]["id"] = tool_call_delta.id
-                                    if tool_call_delta.function.name:
-                                        tool_calls_dict[index]["function"]["name"] = tool_call_delta.function.name
-                                    if tool_call_delta.function.arguments:
-                                        tool_calls_dict[index]["function"]["arguments"] += tool_call_delta.function.arguments
-
-                        tool_calls = list(tool_calls_dict.values())
-                        if live:
-                            live.stop()
-                    else:
-                        message = response.choices[0].message
-                        tool_calls = message.tool_calls or []
-                        if not tool_calls:
-                            content += message.content or "No response."
+                        if delta.content:
+                            content += delta.content
+                            # Stream token to callback if provided.
                             if output_callback:
-                                output_callback(message.content or "No response.")
-                            elif not quiet:
-                                self._render_content(content, markdown, live=None)
-                            break
+                                output_callback(delta.content)
+                            elif live:
+                                live.update(Markdown(content))
+                            elif not markdown and not quiet:
+                                print(delta.content, end="")
 
+                        if delta.tool_calls:
+                            for tool_call_delta in delta.tool_calls:
+                                index = tool_call_delta.index
+                                if index not in tool_calls_dict:
+                                    tool_calls_dict[index] = {"id": None, "function": {"name": "", "arguments": ""}}
+                                if tool_call_delta.id:
+                                    tool_calls_dict[index]["id"] = tool_call_delta.id
+                                if tool_call_delta.function.name:
+                                    tool_calls_dict[index]["function"]["name"] = tool_call_delta.function.name
+                                if tool_call_delta.function.arguments:
+                                    tool_calls_dict[index]["function"]["arguments"] += tool_call_delta.function.arguments
+
+                    tool_calls = list(tool_calls_dict.values())
+                    if live:
+                        live.stop()
+                else:
+                    message = response.choices[0].message
+                    tool_calls = message.tool_calls or []
                     if not tool_calls:
+                        content += message.content or "No response."
+                        if output_callback:
+                            output_callback(message.content or "No response.")
+                        elif not quiet:
+                            self._render_content(content, markdown, live=None)
                         break
 
-                    # Add assistant message with tool calls.
-                    assistant_msg = {
-                        "role": "assistant",
-                        "content": None,
-                        "tool_calls": [{
-                            "id": call["id"] if isinstance(call, dict) else call.id,
-                            "type": "function",
-                            "function": {
-                                "name": call["function"]["name"] if isinstance(call, dict) else call.function.name,
-                                "arguments": call["function"]["arguments"] if isinstance(call, dict) else call.function.arguments
-                            }
-                        } for call in tool_calls]
-                    }
-                    with self._history_lock:
-                        self.history.append(assistant_msg)
-
-                    # Send tool call notification through callback
-                    if output_callback:
-                        for call in tool_calls:
-                            name = call["function"]["name"] if isinstance(call, dict) else call.function.name
-                            # Send a special notification format that the frontend can recognize
-                            notification = json.dumps({
-                                "type": "tool_call",
-                                "tool_name": name,
-                                "status": "started"
-                            })
-                            output_callback(notification)
-
-                    # Process tool calls and add their results to history.
-                    for call in tool_calls:
-                        name = call["function"]["name"] if isinstance(call, dict) else call.function.name
-                        arguments = call["function"]["arguments"] if isinstance(call, dict) else call.function.arguments
-                        tool_call_id = call["id"] if isinstance(call, dict) else call.id
-                        result = self._handle_tool_call(name, arguments, tool_call_id, params, markdown, live)
-                        with self._history_lock:
-                            self.history.append({
-                                "role": "tool",
-                                "content": json.dumps(result),
-                                "tool_call_id": tool_call_id
-                            })
-
-                        # Send tool completion notification
-                        if output_callback:
-                            notification = json.dumps({
-                                "type": "tool_call",
-                                "tool_name": name,
-                                "status": "completed"
-                            })
-                            output_callback(notification)
-
-                except Exception as e:
-                    error_msg = f"Error: {e}"
-                    if not quiet:
-                        print(f"[red]{error_msg}[/red]")
-                    content += f"\n{error_msg}"
+                if not tool_calls:
                     break
 
-            # Add final assistant response to history.
-            with self._history_lock:
-                self.history.append({"role": "assistant", "content": content})
+                # Add assistant message with tool calls.
+                assistant_msg = {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [{
+                        "id": call["id"] if isinstance(call, dict) else call.id,
+                        "type": "function",
+                        "function": {
+                            "name": call["function"]["name"] if isinstance(call, dict) else call.function.name,
+                            "arguments": call["function"]["arguments"] if isinstance(call, dict) else call.function.arguments
+                        }
+                    } for call in tool_calls]
+                }
+                self.history.append(assistant_msg)
 
-            return content
+                # Send tool call notification through callback
+                if output_callback:
+                    for call in tool_calls:
+                        name = call["function"]["name"] if isinstance(call, dict) else call.function.name
+                        # Send a special notification format that the frontend can recognize
+                        notification = json.dumps({
+                            "type": "tool_call",
+                            "tool_name": name,
+                            "status": "started"
+                        })
+                        output_callback(notification)
+
+                # Process tool calls and add their results to history.
+                for call in tool_calls:
+                    name = call["function"]["name"] if isinstance(call, dict) else call.function.name
+                    arguments = call["function"]["arguments"] if isinstance(call, dict) else call.function.arguments
+                    tool_call_id = call["id"] if isinstance(call, dict) else call.id
+                    result = self._handle_tool_call(name, arguments, tool_call_id, params, markdown, live)
+                    self.history.append({
+                        "role": "tool",
+                        "content": json.dumps(result),
+                        "tool_call_id": tool_call_id
+                    })
+
+                    # Send tool completion notification
+                    if output_callback:
+                        notification = json.dumps({
+                            "type": "tool_call",
+                            "tool_name": name,
+                            "status": "completed"
+                        })
+                        output_callback(notification)
+
+            except Exception as e:
+                error_msg = f"Error: {e}"
+                if not quiet:
+                    print(f"[red]{error_msg}[/red]")
+                content += f"\n{error_msg}"
+                break
+
+        # Add final assistant response to history.
+        self.history.append({"role": "assistant", "content": content})
+
+        return content
 
     def _render_content(
             self, content: str,
@@ -604,26 +594,25 @@ class Interactor:
         Raises:
             ValueError: If content is provided without role, or if content is empty
         """
-        with self._history_lock:
-            if role is None and content is None:
-                return self.history.copy()
-                
-            if content is None and role is not None:
-                raise ValueError("Content must be provided when role is specified")
-            if not content:
-                raise ValueError("Content cannot be empty")
-            if not isinstance(content, str):
-                raise ValueError("Content must be a string")
-                
-            if role == "system":
-                self.messages_system(content)
-                return self.history.copy()
-                
-            if role is not None:
-                self.history.append({"role": role, "content": content})
-                return self.history.copy()
-
+        if role is None and content is None:
             return self.history.copy()
+            
+        if content is None and role is not None:
+            raise ValueError("Content must be provided when role is specified")
+        if not content:
+            raise ValueError("Content cannot be empty")
+        if not isinstance(content, str):
+            raise ValueError("Content must be a string")
+            
+        if role == "system":
+            self.messages_system(content)
+            return self.history.copy()
+            
+        if role is not None:
+            self.history.append({"role": role, "content": content})
+            return self.history.copy()
+
+        return self.history.copy()
 
     def messages_system(self, prompt: str):
         """Set a new system prompt.
@@ -643,22 +632,21 @@ class Interactor:
         if not isinstance(prompt, str) or not prompt:
             return self.system
 
-        with self._history_lock:
-            filtered_messages = []
-            for message in self.history:
-                if message["role"] != "system":
-                    filtered_messages.append(message)
-            self.history = filtered_messages
+        filtered_messages = []
+        for message in self.history:
+            if message["role"] != "system":
+                filtered_messages.append(message)
+        self.history = filtered_messages
 
-            system_message = {
-                "role": "system",
-                "content": prompt
-            }
+        system_message = {
+            "role": "system",
+            "content": prompt
+        }
 
-            self.history.insert(0, system_message)
-            self.system = prompt
+        self.history.insert(0, system_message)
+        self.system = prompt
 
-            return self.system
+        return self.system
 
     def messages_get(self) -> list:
         """Retrieve the current message list.
@@ -666,8 +654,7 @@ class Interactor:
         Returns:
             list: The current conversation history.
         """
-        with self._history_lock:
-            return self.history.copy()
+        return self.history.copy()
 
     def messages_flush(self) -> list:
         """Clear all messages while preserving the system prompt.
@@ -678,10 +665,9 @@ class Interactor:
         Returns:
             list: The reset message list containing only the system message.
         """
-        with self._history_lock:
-            self.history = []
-            self.messages_system(self.system)
-            return self.history.copy()
+        self.history = []
+        self.messages_system(self.system)
+        return self.history.copy()
 
     def messages_length(self) -> int:
         """Calculate the total token count for the message history.

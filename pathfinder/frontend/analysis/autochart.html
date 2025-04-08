@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoChart - AI Animation Assistant</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/p5@1.9.0/lib/p5.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #0d1117;
+            --card-bg: #161b22;
+            --card-header-bg: #21262d;
+            --text-color: #ffffff;
+            --border-color: #30363d;
+            --input-bg: #0d1117;
+            --input-text: #ffffff;
+            --placeholder-color: #c9d1d9;
+            --label-color: #d0d7de;
+            --btn-primary-bg: #238636;
+            --btn-primary-border: #2ea043;
+        }
+
+        [data-theme="light"] {
+            --bg-color: #f8f9fa;
+            --card-bg: #ffffff;
+            --card-header-bg: #e9ecef;
+            --text-color: #212529;
+            --border-color: #ced4da;
+            --input-bg: #ffffff;
+            --input-text: #212529;
+            --placeholder-color: #6c757d;
+            --label-color: #495057;
+            --btn-primary-bg: #0d6efd;
+            --btn-primary-border: #0a58ca;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: 'Segoe UI', sans-serif;
+            height: 100vh;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+
+        .container-fluid {
+            height: 100vh;
+            padding: 20px;
+        }
+
+        .chat-container {
+            height: calc(100vh - 250px);
+            overflow-y: auto;
+            border: 1px solid var(--border-color);
+            border-radius: 0.25rem;
+            padding: 15px;
+            background-color: var(--input-bg);
+            margin-bottom: 15px;
+        }
+
+        .animation-container {
+            height: calc(100vh - 250px);
+            border: 1px solid var(--border-color);
+            border-radius: 0.25rem;
+            background-color: var(--input-bg);
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .user-message {
+            background-color: var(--border-color);
+            padding: 10px;
+            border-radius: 10px;
+            margin-bottom: 10px;
+            max-width: 80%;
+            margin-left: auto;
+        }
+
+        .ai-message {
+            background-color: var(--card-bg);
+            color: var(--text-color);
+            padding: 10px;
+            border-radius: 10px;
+            margin-bottom: 10px;
+            max-width: 80%;
+            border: 1px solid var(--border-color);
+        }
+
+        pre {
+            background-color: var(--card-bg);
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+            color: var(--text-color);
+        }
+
+        .form-control, .form-control:focus {
+            background-color: var(--input-bg) !important;
+            color: var(--input-text) !important;
+            border: 1px solid var(--border-color);
+            box-shadow: none;
+        }
+
+        .btn-primary {
+            background-color: var(--btn-primary-bg);
+            border-color: var(--btn-primary-border);
+        }
+
+        .controls {
+            margin-top: 10px;
+            display: flex;
+            gap: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Left Column: Chat Interface -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span>Animation Assistant</span>
+                        <select class="form-select" id="model-select" style="width: auto;">
+                            <option value="">Loading models...</option>
+                        </select>
+                    </div>
+                    <div class="card-body">
+                        <div class="chat-container" id="chat-container"></div>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="user-input" 
+                                placeholder="Describe the animation you want to create...">
+                            <button class="btn btn-primary" type="button" id="send-btn">Generate</button>
+                            <button class="btn btn-outline-danger" type="button" id="clear-btn">Clear</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Animation Preview -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">Animation Preview</div>
+                    <div class="card-body">
+                        <div class="animation-container" id="animation-container"></div>
+                        <div class="controls">
+                            <button class="btn btn-primary" id="run-btn" style="display: none;">Run Animation</button>
+                            <button class="btn btn-outline-secondary" id="stop-btn" style="display: none;">Stop</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // EchoAI Client Implementation
+        class EchoAIClient {
+            constructor(options = {}) {
+                this.baseUrl = options.baseUrl || 'http://127.0.0.1:5000';
+            }
+
+            async interact(params) {
+                const { message, stream = true, tools = false, model, markdown = false, onToken } = params;
+                if (!message) throw new Error('Message is required');
+                if (stream && onToken) {
+                    const response = await fetch(`${this.baseUrl}/api/interact`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ message, stream, tools, model, markdown })
+                    });
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder('utf-8');
+                    while (true) {
+                        const { value, done } = await reader.read();
+                        if (done) break;
+                        onToken(decoder.decode(value, { stream: true }));
+                    }
+                    return null;
+                } else {
+                    const response = await fetch(`${this.baseUrl}/api/interact`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ message, stream: false, tools, model, markdown })
+                    });
+                    return (await response.json()).response;
+                }
+            }
+
+            async listModels() {
+                const res = await fetch(`${this.baseUrl}/api/models`);
+                return (await res.json()).models;
+            }
+
+            async getCurrentModel() {
+                const res = await fetch(`${this.baseUrl}/api/model`);
+                return await res.json();
+            }
+
+            async switchModel({ model }) {
+                const res = await fetch(`${this.baseUrl}/api/switch_model`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model })
+                });
+                return res.json();
+            }
+
+            async setSystemPrompt(prompt) {
+                const res = await fetch(`${this.baseUrl}/api/system_prompt`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt })
+                });
+                return res.json();
+            }
+
+            async clearMessages() {
+                const res = await fetch(`${this.baseUrl}/api/messages`, { method: 'DELETE' });
+                return res.json();
+            }
+        }
+
+        // Animation Assistant Implementation
+        class AnimationAssistant {
+            constructor() {
+                this.client = new EchoAIClient();
+                this.currentSketch = null;
+                this.setupUI();
+                this.setupEventListeners();
+                this.initializeApp();
+            }
+
+            setupUI() {
+                this.elements = {
+                    chatContainer: document.getElementById('chat-container'),
+                    userInput: document.getElementById('user-input'),
+                    sendBtn: document.getElementById('send-btn'),
+                    clearBtn: document.getElementById('clear-btn'),
+                    modelSelect: document.getElementById('model-select'),
+                    animationContainer: document.getElementById('animation-container'),
+                    runBtn: document.getElementById('run-btn'),
+                    stopBtn: document.getElementById('stop-btn')
+                };
+            }
+
+            setupEventListeners() {
+                this.elements.sendBtn.addEventListener('click', () => this.handleUserInput());
+                this.elements.userInput.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') this.handleUserInput();
+                });
+                this.elements.clearBtn.addEventListener('click', () => this.clearChat());
+                this.elements.modelSelect.addEventListener('change', () => this.switchModel());
+                this.elements.runBtn.addEventListener('click', () => this.runAnimation());
+                this.elements.stopBtn.addEventListener('click', () => this.stopAnimation());
+            }
+
+            async initializeApp() {
+                await this.loadModels();
+                await this.setInitialSystemPrompt();
+            }
+
+            addMessage(content, isUser = false) {
+                const div = document.createElement('div');
+                div.className = isUser ? 'user-message' : 'ai-message';
+                div.innerHTML = isUser ? content : marked.parse(content);
+                this.elements.chatContainer.appendChild(div);
+                this.elements.chatContainer.scrollTop = this.elements.chatContainer.scrollHeight;
+                return div;
+            }
+
+            async handleUserInput() {
+                const message = this.elements.userInput.value.trim();
+                if (!message) return;
+
+                this.addMessage(message, true);
+                this.elements.userInput.value = '';
+
+                const aiDiv = this.addMessage('Thinking...');
+                let response = '';
+                
+                const prompt = `Create a p5.js animation based on this description: "${message}". 
+                Return ONLY the JavaScript code without any explanation or markdown. 
+                The code should use p5.js and include setup() and draw() functions.`;
+
+                await this.client.interact({
+                    message: prompt,
+                    stream: true,
+                    markdown: true,
+                    onToken: (token) => {
+                        response += token;
+                        aiDiv.innerHTML = marked.parse(response);
+                        this.elements.chatContainer.scrollTop = this.elements.chatContainer.scrollHeight;
+                    }
+                });
+
+                // Extract code from the response
+                const codeMatch = response.match(/```(?:javascript)?([\s\S]*?)```/);
+                if (codeMatch) {
+                    const code = codeMatch[1].trim();
+                    this.prepareAnimation(code);
+                }
+            }
+
+            prepareAnimation(code) {
+                this.currentSketch = code;
+                this.elements.runBtn.style.display = 'inline-block';
+                this.elements.stopBtn.style.display = 'inline-block';
+            }
+
+            runAnimation() {
+                if (!this.currentSketch) return;
+
+                // Clear previous animation
+                this.elements.animationContainer.innerHTML = '';
+                
+                // Create a new script element
+                const script = document.createElement('script');
+                script.textContent = this.currentSketch;
+                this.elements.animationContainer.appendChild(script);
+            }
+
+            stopAnimation() {
+                if (window.p5Instance && typeof window.p5Instance.remove === 'function') {
+                    window.p5Instance.remove();
+                }
+                this.elements.animationContainer.innerHTML = '';
+            }
+
+            async loadModels() {
+                try {
+                    const current = await this.client.getCurrentModel();
+                    const currentFullModel = `${current.provider}:${current.model}`;
+                    const models = await this.client.listModels();
+                    
+                    this.elements.modelSelect.innerHTML = '';
+                    models.sort().forEach(model => {
+                        const opt = document.createElement('option');
+                        opt.value = model;
+                        opt.textContent = model;
+                        if (model === currentFullModel) opt.selected = true;
+                        this.elements.modelSelect.appendChild(opt);
+                    });
+                } catch (error) {
+                    console.error('Error loading models:', error);
+                }
+            }
+
+            async switchModel() {
+                const model = this.elements.modelSelect.value;
+                if (!model) return;
+                await this.client.switchModel({ model });
+            }
+
+            async setInitialSystemPrompt() {
+                const systemPrompt = `You are an AI animation assistant that creates p5.js animations. 
+                When given a description, respond with ONLY the JavaScript code needed to create the animation. 
+                Include both setup() and draw() functions. Make sure the code is complete and can run immediately.`;
+                
+                await this.client.setSystemPrompt(systemPrompt);
+            }
+
+            async clearChat() {
+                await this.client.clearMessages();
+                this.elements.chatContainer.innerHTML = '';
+                this.stopAnimation();
+                this.currentSketch = null;
+                this.elements.runBtn.style.display = 'none';
+                this.elements.stopBtn.style.display = 'none';
+            }
+        }
+
+        // Initialize the application
+        const app = new AnimationAssistant();
+    </script>
+</body>
+</html>

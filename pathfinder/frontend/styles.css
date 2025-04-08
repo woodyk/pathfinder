@@ -171,11 +171,14 @@ body {
     padding: 8px;
     border-bottom: 1px solid var(--border-color);
     background-color: var(--bg-secondary);
+    position: relative;
 }
 
 .search-input {
+    position: relative;
     width: 100%;
     padding: 6px 12px;
+    padding-right: 30px;
     border-radius: 4px;
     border: 1px solid var(--border-color);
     background-color: var(--bg-tertiary);
@@ -758,8 +761,8 @@ body {
 
 /* Tools Pane */
 .tools {
-    width: 300px;
-    min-width: 200px;
+    width: 600px;
+    min-width: 300px;
 }
 
 /* Scrollbar Styling */
@@ -1231,7 +1234,7 @@ body {
 #file-search {
     width: 100%;
     padding: 0.5rem;
-    padding-right: 2rem;
+    padding-right: 30px;
     border: 1px solid var(--border-color);
     border-radius: 4px;
     background: var(--background-color);
@@ -1240,17 +1243,26 @@ body {
 
 .search-clear-button {
     position: absolute;
-    right: 0.5rem;
+    right: 16px;
     top: 50%;
     transform: translateY(-50%);
-    cursor: pointer;
     display: none;
-    color: var(--text-secondary);
-    transition: color 0.2s;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background-color: var(--bg-tertiary);
+    cursor: pointer;
+    transition: background-color 0.2s ease;
 }
 
 .search-clear-button:hover {
-    color: var(--text-color);
+    background-color: var(--bg-quaternary);
+}
+
+.search-clear-button svg {
+    color: var(--text-secondary);
 }
 
 .file-tree-item.focused {
