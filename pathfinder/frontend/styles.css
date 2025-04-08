@@ -19,6 +19,10 @@
     --button-hover-text: #c9d1d9;
     --hover-bg: rgba(0, 0, 0, 0.05);
     --selected-bg: rgba(0, 0, 0, 0.1);
+    --focus-color: #2f81f7;
+    --focus-border: 2px solid #2f81f7;
+    --selection-bg: rgba(47, 129, 247, 0.1);
+    --selection-border: 1px solid rgba(47, 129, 247, 0.3);
 }
 
 /* Light theme */
@@ -42,6 +46,10 @@
     --button-hover-text: #24292f;
     --hover-bg: rgba(0, 0, 0, 0.05);
     --selected-bg: rgba(0, 0, 0, 0.1);
+    --focus-color: #0969da;
+    --focus-border: 2px solid #0969da;
+    --selection-bg: rgba(9, 105, 218, 0.1);
+    --selection-border: 1px solid rgba(9, 105, 218, 0.3);
 }
 
 * {
@@ -148,8 +156,8 @@ body {
 
 /* File Explorer Pane */
 .file-explorer {
-    width: 250px;
-    min-width: 180px;
+    width: 300px;
+    min-width: 200px;
     display: flex;
     flex-direction: column;
 }
@@ -184,6 +192,7 @@ body {
     flex: 1;
     overflow-y: auto;
     min-height: 0;
+    outline: none;
 }
 
 .file-tree {
@@ -191,6 +200,14 @@ body {
     user-select: none;
     display: flex;
     flex-direction: column;
+    outline: none;
+    min-height: 100%;
+}
+
+.file-tree.drag-over {
+    background-color: var(--hover-bg);
+    border: 2px dashed var(--accent-color);
+    border-radius: 4px;
 }
 
 .file-tree-item {
@@ -202,6 +219,8 @@ body {
     position: relative;
     transition: background-color 0.2s;
     border-radius: 4px;
+    outline: none;
+    margin: 1px 0;
 }
 
 .file-tree-item-content {
@@ -227,7 +246,8 @@ body {
 }
 
 .file-tree-item.selected {
-    background-color: var(--selected-bg);
+    background-color: var(--selection-bg);
+    border: var(--selection-border);
 }
 
 .file-tree-item.dragging {
@@ -329,7 +349,7 @@ body {
 }
 
 .preview-panel {
-    height: 200px;
+    height: 300px;
     min-height: 100px;
     max-height: calc(100vh - 200px);
     overflow-y: auto;
@@ -343,11 +363,47 @@ body {
     line-height: 1.4;
 }
 
+.preview-panel.loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.preview-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-secondary);
+}
+
+.preview-loading-dots {
+    display: flex;
+    gap: 4px;
+}
+
+.preview-loading-dots span {
+    width: 6px;
+    height: 6px;
+    background-color: var(--text-secondary);
+    border-radius: 50%;
+    animation: bounce 1.4s infinite ease-in-out;
+}
+
+.preview-loading-dots span:nth-child(1) { animation-delay: -0.32s; }
+.preview-loading-dots span:nth-child(2) { animation-delay: -0.16s; }
+.preview-loading-dots span:nth-child(3) { animation-delay: 0s; }
+
+@keyframes bounce {
+    0%, 80%, 100% { transform: scale(0); }
+    40% { transform: scale(1); }
+}
+
 .preview-panel .preview-header {
     font-weight: 500;
     color: var(--text-primary);
     margin-bottom: 4px;
-    font-size: 13px;
+    font-size: 11px;
 }
 
 .preview-panel .preview-content {
@@ -364,20 +420,20 @@ body {
     display: flex;
     gap: 8px;
     align-items: baseline;
-    font-size: 12px;
-    margin-bottom: 4px;
+    font-size: 11px;
+    margin-bottom: 2px;
 }
 
 .preview-panel .meta-label {
     color: var(--text-secondary);
     min-width: 80px;
-    font-size: 12px;
+    font-size: 11px;
 }
 
 .preview-panel .meta-value {
     color: var(--text-primary);
     word-break: break-all;
-    font-size: 12px;
+    font-size: 11px;
 }
 
 /* AI Chat Pane */
@@ -987,7 +1043,8 @@ body {
 }
 
 .file-tree-item.selected {
-    background-color: var(--selected-bg);
+    background-color: var(--selection-bg);
+    border: var(--selection-border);
 }
 
 .file-tree-item.dragging {
@@ -1181,4 +1238,27 @@ body {
 
 .search-clear-button:hover {
     color: var(--text-color);
+}
+
+.file-tree-item.focused {
+    outline: var(--focus-border);
+    position: relative;
+    z-index: 1;
+}
+
+.file-tree-item.focused:not(.selected) {
+    background-color: var(--hover-bg);
+}
+
+.file-tree-item.focused.selected {
+    background-color: var(--selection-bg);
+    border: var(--selection-border);
+}
+
+.file-tree-container:focus {
+    outline: none;
+}
+
+.file-tree-item:focus {
+    outline: none;
 }

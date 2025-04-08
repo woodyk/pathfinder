@@ -3,7 +3,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const sendButton = document.querySelector('#send-button');
     const clearButton = document.querySelector('#clear-chat');
     const chatMessages = document.querySelector('.chat-messages');
-    const API_BASE_URL = 'http://127.0.0.1:5000/api';
+    const API_BASE_URL = 'http://127.0.0.1:5000';
 
     let isProcessing = false;
     let fileTree = [];
@@ -11,6 +11,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let contextMenu = null;
     let searchTimeout = null;
     let pendingAttachments = [];
+    let currentFocusedItem = null;
+    let lastSelectedItem = null;
 
     // Theme handling
     const themeToggle = document.getElementById('theme-toggle-input');
@@ -131,7 +133,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Clear chat history
     async function clearChat() {
         try {
-            const response = await fetch(`${API_BASE_URL}/messages`, {
+            const response = await fetch(`${API_BASE_URL}/api/messages`, {
                 method: 'DELETE'
             });
             
@@ -204,7 +206,7 @@ document.addEventListener('DOMContentLoaded', () => {
         textarea.disabled = true;
         chatInput.classList.add('uploading');
 
-        fetch(`${API_BASE_URL}/upload`, {
+        fetch(`${API_BASE_URL}/api/files/upload`, {
             method: 'POST',
             body: formData
         })
@@ -263,8 +265,21 @@ document.addEventListener('DOMContentLoaded', () => {
     async function updatePreview(path) {
         const previewPanel = document.getElementById('preview-panel');
         
+        // Show loading state
+        previewPanel.innerHTML = `
+            <div class="preview-loading">
+                <div class="preview-loading-dots">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+                <div>Loading file preview...</div>
+            </div>
+        `;
+        previewPanel.classList.add('loading');
+        
         try {
-            const response = await fetch(`${API_BASE_URL}/files/info?path=${encodeURIComponent(path)}`);
+            const response = await fetch(`${API_BASE_URL}/api/files/info?path=${encodeURIComponent(path)}`);
             if (!response.ok) throw new Error('Failed to get file info');
             
             const fileInfo = await response.json();
@@ -312,9 +327,11 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             previewPanel.innerHTML = html;
+            previewPanel.classList.remove('loading');
         } catch (error) {
             console.error('Error getting file info:', error);
             previewPanel.innerHTML = '<div class="preview-header">Error loading preview</div>';
+            previewPanel.classList.remove('loading');
         }
     }
 
@@ -327,7 +344,7 @@ document.addEventListener('DOMContentLoaded', () => {
         searchTimeout = setTimeout(async () => {
             try {
                 console.log('Searching for:', query);
-                const response = await fetch(`${API_BASE_URL}/files/search?query=${encodeURIComponent(query)}`);
+                const response = await fetch(`${API_BASE_URL}/api/files/search?query=${encodeURIComponent(query)}`);
                 if (!response.ok) throw new Error('Search failed');
                 
                 const data = await response.json();
@@ -367,7 +384,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!name) return;
 
         try {
-            const response = await fetch(`${API_BASE_URL}/files/move`, {
+            const response = await fetch(`${API_BASE_URL}/api/files/move`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -404,7 +421,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const fileName = path.split('/').pop();
                 const destination = targetPath + '/' + fileName;
 
-                const response = await fetch(`${API_BASE_URL}/files/copy`, {
+                const response = await fetch(`${API_BASE_URL}/api/files/copy`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -424,6 +441,31 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // Track expanded directories
+    const expandedDirectories = new Set();
+
+    // Toggle directory expansion
+    function toggleDirectory(item) {
+        if (!item || !item.classList.contains('directory')) return;
+        
+        const toggle = item.querySelector('.toggle');
+        if (toggle) {
+            toggle.classList.toggle('expanded');
+            const children = item.querySelector('.file-tree-children');
+            if (children) {
+                children.classList.toggle('visible');
+            }
+            
+            // Update expanded state tracking
+            const path = item.dataset.path;
+            if (toggle.classList.contains('expanded')) {
+                expandedDirectories.add(path);
+            } else {
+                expandedDirectories.delete(path);
+            }
+        }
+    }
+
     // Create file tree item element
     function createFileTreeItem(item) {
         const div = document.createElement('div');
@@ -435,7 +477,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         const html = `
             ${item.type === 'directory' ? `
-                <div class="toggle">
+                <div class="toggle${expandedDirectories.has(item.path) ? ' expanded' : ''}">
                     <svg viewBox="0 0 24 24">
                         <path fill="currentColor" d="M8.59,16.58L13.17,12L8.59,7.41L10,6L16,12L10,18L8.59,16.58Z"/>
                     </svg>
@@ -464,7 +506,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (item.type === 'directory' && item.children) {
             const children = document.createElement('div');
-            children.className = 'file-tree-children';
+            children.className = `file-tree-children${expandedDirectories.has(item.path) ? ' visible' : ''}`;
             
             item.children.forEach(child => {
                 children.appendChild(createFileTreeItem(child));
@@ -491,7 +533,7 @@ document.addEventListener('DOMContentLoaded', () => {
             treeContainer.innerHTML = '<div class="loading-message">Loading files...</div>';
 
             console.log('Fetching file tree from API...');
-            const response = await fetch(`${API_BASE_URL}/files/tree`);
+            const response = await fetch(`${API_BASE_URL}/api/files/tree`);
             console.log('API response status:', response.status);
             
             if (!response.ok) {
@@ -537,6 +579,32 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // File explorer upload handling
+    async function handleFileExplorerUpload(file) {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('path', 'user_data');
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/files/upload`, {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                throw new Error('Upload failed');
+            }
+
+            // Refresh the file tree to show the new file
+            refreshFileTree();
+            return true;
+        } catch (error) {
+            console.error('Error uploading file:', error);
+            showNotification(`Failed to upload file: ${file.name}`, 3000);
+            return false;
+        }
+    }
+
     // Update context menu items
     function createContextMenu(x, y, isDirectory) {
         if (contextMenu) {
@@ -552,7 +620,7 @@ document.addEventListener('DOMContentLoaded', () => {
             {
                 label: 'Upload File',
                 icon: '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M9,16V10H5L12,3L19,10H15V16H9M5,20V18H19V20H5Z"/></svg>',
-                action: () => document.getElementById('file-upload-input').click()
+                action: () => document.getElementById('file-explorer-upload-input').click()
             },
             {
                 label: 'New Folder',
@@ -618,67 +686,335 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 0);
     }
 
+    // Focus an item in the file tree
+    function focusFileTreeItem(item) {
+        if (!item) return;
+        
+        // Remove focus from current item
+        if (currentFocusedItem) {
+            currentFocusedItem.classList.remove('focused');
+        }
+        
+        // Set new focused item
+        currentFocusedItem = item;
+        currentFocusedItem.classList.add('focused');
+        currentFocusedItem.scrollIntoView({ block: 'nearest' });
+    }
+
+    // Handle file selection
+    function selectFileTreeItem(item, isMultiSelect = false, isRangeSelect = false) {
+        if (!item) return;
+        
+        // If it's a directory, don't select it
+        if (item.classList.contains('directory')) return;
+        
+        if (isRangeSelect) {
+            // Range selection with Shift
+            const allItems = Array.from(document.querySelectorAll('.file-tree-item:not(.directory)'));
+            const startIndex = allItems.indexOf(lastSelectedItem);
+            const endIndex = allItems.indexOf(item);
+            
+            // Clear previous selection if not in multi-select mode
+            if (!isMultiSelect) {
+                selectedFiles.clear();
+                document.querySelectorAll('.file-tree-item.selected').forEach(el => {
+                    el.classList.remove('selected');
+                });
+            }
+            
+            // Select range
+            const [min, max] = [Math.min(startIndex, endIndex), Math.max(startIndex, endIndex)];
+            for (let i = min; i <= max; i++) {
+                const path = allItems[i].dataset.path;
+                selectedFiles.add(path);
+                allItems[i].classList.add('selected');
+            }
+        } else if (isMultiSelect) {
+            // Toggle selection with Ctrl/Cmd
+            if (selectedFiles.has(item.dataset.path)) {
+                selectedFiles.delete(item.dataset.path);
+                item.classList.remove('selected');
+            } else {
+                selectedFiles.add(item.dataset.path);
+                item.classList.add('selected');
+            }
+        } else {
+            // Single selection
+            selectedFiles.clear();
+            document.querySelectorAll('.file-tree-item.selected').forEach(el => {
+                el.classList.remove('selected');
+            });
+            selectedFiles.add(item.dataset.path);
+            item.classList.add('selected');
+        }
+        
+        // Update preview with the last selected item
+        if (item.dataset.path) {
+            updatePreview(item.dataset.path);
+        }
+        
+        // Store the last selected item for range selection
+        lastSelectedItem = item;
+    }
+
+    // Navigate in the file tree
+    function navigateFileTree(direction) {
+        if (!currentFocusedItem) return;
+        
+        const allItems = Array.from(document.querySelectorAll('.file-tree-item:not(.directory)'));
+        const visibleItems = allItems.filter(item => {
+            // Item is visible if it's not inside a collapsed directory
+            const parent = item.parentElement.closest('.file-tree-children');
+            if (!parent) return true; // Top-level item
+            
+            return parent.classList.contains('visible');
+        });
+        
+        const currentIndex = visibleItems.indexOf(currentFocusedItem);
+        if (currentIndex === -1) return;
+        
+        let nextIndex;
+        if (direction === 'down') {
+            nextIndex = Math.min(currentIndex + 1, visibleItems.length - 1);
+        } else {
+            nextIndex = Math.max(currentIndex - 1, 0);
+        }
+        
+        focusFileTreeItem(visibleItems[nextIndex]);
+    }
+
+    // Handle keyboard navigation
+    function handleFileTreeKeydown(e) {
+        const treeContainer = document.getElementById('file-tree');
+        if (!treeContainer) return;
+        
+        // If no item is focused yet, focus the first one
+        if (!currentFocusedItem) {
+            const firstItem = treeContainer.querySelector('.file-tree-item:not(.directory)');
+            if (firstItem) {
+                focusFileTreeItem(firstItem);
+                return;
+            }
+        }
+        
+        // Handle different keys
+        switch (e.key) {
+            case 'ArrowDown':
+            case 'ArrowUp':
+                e.preventDefault();
+                const direction = e.key === 'ArrowDown' ? 'down' : 'up';
+                navigateFileTree(direction);
+                
+                if (e.shiftKey) {
+                    // For shift selection, select all items between lastSelectedItem and currentFocusedItem
+                    const allItems = Array.from(document.querySelectorAll('.file-tree-item:not(.directory)'));
+                    const visibleItems = allItems.filter(item => {
+                        const parent = item.parentElement.closest('.file-tree-children');
+                        if (!parent) return true;
+                        return parent.classList.contains('visible');
+                    });
+                    
+                    const startIndex = visibleItems.indexOf(lastSelectedItem || currentFocusedItem);
+                    const endIndex = visibleItems.indexOf(currentFocusedItem);
+                    
+                    // Clear previous selection
+                    selectedFiles.clear();
+                    document.querySelectorAll('.file-tree-item.selected').forEach(el => {
+                        el.classList.remove('selected');
+                    });
+                    
+                    // Select range
+                    const [min, max] = [Math.min(startIndex, endIndex), Math.max(startIndex, endIndex)];
+                    for (let i = min; i <= max; i++) {
+                        const path = visibleItems[i].dataset.path;
+                        selectedFiles.add(path);
+                        visibleItems[i].classList.add('selected');
+                    }
+                } else if (!e.ctrlKey && !e.metaKey) {
+                    // Single selection
+                    selectFileTreeItem(currentFocusedItem);
+                }
+                break;
+                
+            case 'ArrowRight':
+                e.preventDefault();
+                // If directory and not expanded, expand it
+                if (currentFocusedItem && currentFocusedItem.classList.contains('directory')) {
+                    const toggle = currentFocusedItem.querySelector('.toggle');
+                    const children = currentFocusedItem.querySelector('.file-tree-children');
+                    if (!toggle.classList.contains('expanded')) {
+                        toggleDirectory(currentFocusedItem);
+                    } else if (children) {
+                        // If already expanded, move to first child
+                        const firstChild = children.querySelector('.file-tree-item');
+                        if (firstChild) {
+                            focusFileTreeItem(firstChild);
+                            if (!e.ctrlKey && !e.metaKey) {
+                                selectFileTreeItem(firstChild);
+                            }
+                        }
+                    }
+                }
+                break;
+                
+            case 'ArrowLeft':
+                e.preventDefault();
+                // If directory and expanded, collapse it
+                if (currentFocusedItem && currentFocusedItem.classList.contains('directory')) {
+                    const toggle = currentFocusedItem.querySelector('.toggle');
+                    if (toggle.classList.contains('expanded')) {
+                        toggleDirectory(currentFocusedItem);
+                    } else {
+                        // If already collapsed, move to parent
+                        const parent = findParentItem(currentFocusedItem);
+                        if (parent) {
+                            focusFileTreeItem(parent);
+                            if (!e.ctrlKey && !e.metaKey) {
+                                selectFileTreeItem(parent);
+                            }
+                        }
+                    }
+                } else {
+                    // If file, move to parent
+                    const parent = findParentItem(currentFocusedItem);
+                    if (parent) {
+                        focusFileTreeItem(parent);
+                        if (!e.ctrlKey && !e.metaKey) {
+                            selectFileTreeItem(parent);
+                        }
+                    }
+                }
+                break;
+                
+            case 'Enter':
+                e.preventDefault();
+                // For directories: toggle expansion
+                if (currentFocusedItem && currentFocusedItem.classList.contains('directory')) {
+                    toggleDirectory(currentFocusedItem);
+                } else if (currentFocusedItem) {
+                    // For files: double-click equivalent behavior
+                    selectFileTreeItem(currentFocusedItem, e.ctrlKey || e.metaKey);
+                    updatePreview(currentFocusedItem.dataset.path);
+                    
+                    // Add file to chat input
+                    const path = currentFocusedItem.dataset.path;
+                    if (path) {
+                        // Check if file is already attached
+                        const isAlreadyAttached = pendingAttachments.some(att => att.filename === path.split('/').pop());
+                        if (!isAlreadyAttached) {
+                            // Add file immediately to pending attachments
+                            pendingAttachments.push({
+                                filename: path.split('/').pop(),
+                                text: `[File: ${path.split('/').pop()}]`,
+                                type: 'file'
+                            });
+                            updateFileAttachments();
+                            
+                            // Then fetch file info in the background
+                            fetch(`${API_BASE_URL}/api/files/info?path=${encodeURIComponent(path)}`)
+                                .then(response => {
+                                    if (!response.ok) throw new Error('Failed to get file info');
+                                    return response.json();
+                                })
+                                .then(fileInfo => {
+                                    // Update the attachment with the actual preview if available
+                                    const attachmentIndex = pendingAttachments.findIndex(att => att.filename === fileInfo.name);
+                                    if (attachmentIndex !== -1 && fileInfo.preview) {
+                                        pendingAttachments[attachmentIndex].text = fileInfo.preview;
+                                        updateFileAttachments();
+                                    }
+                                })
+                                .catch(error => {
+                                    console.error('Error getting file content:', error);
+                                });
+                        }
+                    }
+                }
+                break;
+                
+            case 'a':
+                // Select all files (Ctrl+A)
+                if (e.ctrlKey || e.metaKey) {
+                    e.preventDefault();
+                    const allFiles = document.querySelectorAll('.file-tree-item:not(.directory)');
+                    selectedFiles.clear();
+                    allFiles.forEach(file => {
+                        selectedFiles.add(file.dataset.path);
+                        file.classList.add('selected');
+                    });
+                }
+                break;
+        }
+    }
+
+    // Find the parent item of a given item
+    function findParentItem(item) {
+        if (!item) return null;
+        
+        // Traverse up to find the parent file-tree-children
+        const parentChildren = item.closest('.file-tree-children');
+        if (!parentChildren) return null;
+        
+        // Then get the parent file-tree-item
+        return parentChildren.closest('.file-tree-item');
+    }
+
     // Update file tree click handler
     function handleFileTreeClick(e) {
         const item = e.target.closest('.file-tree-item');
         if (!item) return;
 
+        // Focus the clicked item
+        focusFileTreeItem(item);
+
         const toggle = e.target.closest('.toggle');
         if (toggle && item.classList.contains('directory')) {
-            toggle.classList.toggle('expanded');
-            const children = item.querySelector('.file-tree-children');
-            children.classList.toggle('visible');
+            toggleDirectory(item);
             return;
         }
 
         // Handle file selection
         if (!item.classList.contains('directory')) {
-            if (e.ctrlKey || e.metaKey) {
-                // Toggle selection
-                if (selectedFiles.has(item.dataset.path)) {
-                    selectedFiles.delete(item.dataset.path);
-                    item.classList.remove('selected');
-                } else {
-                    selectedFiles.add(item.dataset.path);
-                    item.classList.add('selected');
-                }
-            } else {
-                // Single selection
-                selectedFiles.clear();
-                document.querySelectorAll('.file-tree-item.selected').forEach(el => {
-                    el.classList.remove('selected');
-                });
-                selectedFiles.add(item.dataset.path);
-                item.classList.add('selected');
-            }
+            selectFileTreeItem(
+                item,
+                e.ctrlKey || e.metaKey, // Multi-select
+                e.shiftKey // Range select
+            );
 
-            // Update preview panel
-            updatePreview(item.dataset.path);
-
-            // Handle double-click to add file as attachment
-            if (e.detail === 2) {
+            // If double clicking or Enter key, add file to chat input
+            if (e.detail === 2 || e.key === 'Enter') {
                 const path = item.dataset.path;
-                fetch(`${API_BASE_URL}/files/info?path=${encodeURIComponent(path)}`)
-                    .then(response => {
-                        if (!response.ok) throw new Error('Failed to get file info');
-                        return response.json();
-                    })
-                    .then(fileInfo => {
-                        if (fileInfo.preview) {
-                            // Check if file is already attached
-                            const isAlreadyAttached = pendingAttachments.some(att => att.filename === fileInfo.name);
-                            if (!isAlreadyAttached) {
-                                pendingAttachments.push({
-                                    filename: fileInfo.name,
-                                    text: fileInfo.preview
-                                });
-                                updateFileAttachments();
-                            }
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Error getting file content:', error);
-                    });
+                if (path) {
+                    // Check if file is already attached
+                    const isAlreadyAttached = pendingAttachments.some(att => att.filename === path.split('/').pop());
+                    if (!isAlreadyAttached) {
+                        // Add file immediately to pending attachments
+                        pendingAttachments.push({
+                            filename: path.split('/').pop(),
+                            text: `[File: ${path.split('/').pop()}]`,
+                            type: 'file'
+                        });
+                        updateFileAttachments();
+                        
+                        // Then fetch file info in the background
+                        fetch(`${API_BASE_URL}/api/files/info?path=${encodeURIComponent(path)}`)
+                            .then(response => {
+                                if (!response.ok) throw new Error('Failed to get file info');
+                                return response.json();
+                            })
+                            .then(fileInfo => {
+                                // Update the attachment with the actual preview if available
+                                const attachmentIndex = pendingAttachments.findIndex(att => att.filename === fileInfo.name);
+                                if (attachmentIndex !== -1 && fileInfo.preview) {
+                                    pendingAttachments[attachmentIndex].text = fileInfo.preview;
+                                    updateFileAttachments();
+                                }
+                            })
+                            .catch(error => {
+                                console.error('Error getting file content:', error);
+                            });
+                    }
+                }
             }
         }
     }
@@ -708,7 +1044,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!name) return;
 
         try {
-            const response = await fetch(`${API_BASE_URL}/files`, {
+            const response = await fetch(`${API_BASE_URL}/api/files`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -731,13 +1067,20 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!name) return;
 
         try {
-            const response = await fetch(`${API_BASE_URL}/files/create_directory`, {
+            // Get the current directory path from the selected item or context menu
+            let targetPath = 'user_data';
+            const selectedItem = document.querySelector('.file-tree-item.selected');
+            if (selectedItem && selectedItem.classList.contains('directory')) {
+                targetPath = selectedItem.dataset.path;
+            }
+
+            const response = await fetch(`${API_BASE_URL}/api/files/create_directory`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    path: name
+                    path: targetPath + '/' + name
                 })
             });
 
@@ -745,6 +1088,7 @@ document.addEventListener('DOMContentLoaded', () => {
             refreshFileTree();
         } catch (error) {
             console.error('Error creating folder:', error);
+            showNotification(`Failed to create folder: ${error.message}`, 3000);
         }
     }
 
@@ -759,24 +1103,40 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             for (const path of selectedFiles) {
-                const response = await fetch(`${API_BASE_URL}/files/delete`, {
+                // Find the corresponding DOM element to check if it's a directory
+                const item = document.querySelector(`.file-tree-item[data-path="${path}"]`);
+                const isDirectory = item && item.classList.contains('directory');
+
+                const response = await fetch(`${API_BASE_URL}/api/files/delete`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
                         path: path,
-                        is_directory: path.endsWith('/')
+                        is_directory: isDirectory
                     })
                 });
 
-                if (!response.ok) throw new Error(`Failed to delete ${path}`);
+                if (!response.ok) {
+                    let errorMessage = 'Failed to delete item';
+                    try {
+                        const errorData = await response.json();
+                        errorMessage = errorData.error || errorMessage;
+                    } catch (e) {
+                        // If response is not JSON, try to get text
+                        const text = await response.text();
+                        errorMessage = text || errorMessage;
+                    }
+                    throw new Error(errorMessage);
+                }
             }
 
             selectedFiles.clear();
             refreshFileTree();
         } catch (error) {
             console.error('Error deleting items:', error);
+            showNotification(`Error deleting item: ${error.message}`, 3000);
         }
     }
 
@@ -803,7 +1163,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const selectedFileContents = [];
             for (const path of selectedFiles) {
                 try {
-                    const response = await fetch(`${API_BASE_URL}/files/info?path=${encodeURIComponent(path)}`);
+                    const response = await fetch(`${API_BASE_URL}/api/files/info?path=${encodeURIComponent(path)}`);
                     if (!response.ok) throw new Error(`Failed to get file info for ${path}`);
                     const fileInfo = await response.json();
                     
@@ -824,7 +1184,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 ...selectedFileContents
             ];
             
-            const response = await fetch(`${API_BASE_URL}/interact`, {
+            const response = await fetch(`${API_BASE_URL}/api/interact`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -1123,6 +1483,166 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Handle drag and drop
+    function handleDragStart(e) {
+        const item = e.target.closest('.file-tree-item');
+        if (!item) return;
+        
+        // If the dragged item is not selected, clear other selections
+        if (!item.classList.contains('selected')) {
+            selectedFiles.clear();
+            document.querySelectorAll('.file-tree-item.selected').forEach(el => {
+                el.classList.remove('selected');
+            });
+            selectFileTreeItem(item);
+        }
+        
+        // Create a drag image that shows all selected items
+        const dragItems = document.querySelectorAll('.file-tree-item.selected');
+        if (dragItems.length > 0) {
+            const dragImage = document.createElement('div');
+            dragImage.style.position = 'absolute';
+            dragImage.style.top = '-9999px';
+            dragImage.style.left = '-9999px';
+            dragImage.style.padding = '8px';
+            dragImage.style.background = 'var(--bg-secondary)';
+            dragImage.style.border = '1px solid var(--border-color)';
+            dragImage.style.borderRadius = '4px';
+            dragImage.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.15)';
+            
+            dragItems.forEach(item => {
+                const clone = item.cloneNode(true);
+                clone.style.width = '200px';
+                clone.style.marginBottom = '4px';
+                dragImage.appendChild(clone);
+            });
+            
+            document.body.appendChild(dragImage);
+            e.dataTransfer.setDragImage(dragImage, 0, 0);
+            
+            // Remove the drag image after a short delay
+            setTimeout(() => document.body.removeChild(dragImage), 0);
+        }
+        
+        // Add dragging class to all selected items
+        document.querySelectorAll('.file-tree-item.selected').forEach(el => {
+            el.classList.add('dragging');
+        });
+        
+        // Store the selected paths in the dataTransfer
+        const selectedPaths = Array.from(selectedFiles);
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('application/json', JSON.stringify(selectedPaths));
+    }
+
+    function handleDragOver(e) {
+        e.preventDefault();
+        const target = e.target.closest('.file-tree-item, #file-tree');
+        if (!target) return;
+        
+        // Remove drag-over from all items
+        document.querySelectorAll('.file-tree-item.drag-over, #file-tree.drag-over').forEach(el => {
+            el.classList.remove('drag-over');
+        });
+        
+        // Add drag-over class to target
+        target.classList.add('drag-over');
+        e.dataTransfer.dropEffect = 'move';
+    }
+
+    function handleDragLeave(e) {
+        const target = e.target.closest('.file-tree-item, #file-tree');
+        if (!target) return;
+        target.classList.remove('drag-over');
+    }
+
+    async function handleDrop(e) {
+        e.preventDefault();
+        
+        // Get the target directory
+        const targetItem = e.target.closest('.file-tree-item');
+        if (!targetItem) return;
+        
+        // If target is not a directory, use its parent directory
+        let targetPath = targetItem.dataset.path;
+        if (!targetItem.classList.contains('directory')) {
+            const parentItem = findParentItem(targetItem);
+            if (!parentItem) return;
+            targetPath = parentItem.dataset.path;
+        }
+        
+        // Get all selected items to move
+        const selectedItems = document.querySelectorAll('.file-tree-item.selected');
+        const pathsToMove = Array.from(selectedItems).map(item => item.dataset.path);
+        if (pathsToMove.length === 0) return;
+        
+        try {
+            // Move each selected item
+            for (const path of pathsToMove) {
+                // Check if we're trying to move a directory into itself or its subdirectories
+                if (path === targetPath || targetPath.startsWith(path + '/')) {
+                    showNotification('Cannot move a directory into itself or its subdirectories', 3000);
+                    continue;
+                }
+
+                // Construct the destination path
+                const itemName = path.split('/').pop();
+                const destination = targetPath + '/' + itemName;
+
+                const response = await fetch(`${API_BASE_URL}/api/files/move`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        source: path,
+                        destination: destination,
+                        is_directory: selectedItems[0].classList.contains('directory')
+                    })
+                });
+                
+                if (!response.ok) {
+                    let errorMessage = 'Failed to move item';
+                    try {
+                        const errorData = await response.json();
+                        errorMessage = errorData.error || errorMessage;
+                    } catch (e) {
+                        // If response is not JSON, try to get text
+                        const text = await response.text();
+                        errorMessage = text || errorMessage;
+                    }
+                    throw new Error(errorMessage);
+                }
+            }
+            
+            // Refresh the file tree to show the changes
+            await refreshFileTree();
+            
+            // Clean up drag state
+            const fileTree = document.querySelector('.file-tree');
+            if (fileTree) {
+                fileTree.classList.remove('drag-over');
+            }
+            document.querySelectorAll('.file-tree-item.dragging').forEach(el => {
+                el.classList.remove('dragging');
+            });
+            
+        } catch (error) {
+            console.error('Error moving items:', error);
+            showNotification(`Error moving item: ${error.message}`, 3000);
+            
+            // Clean up drag state even on error
+            const fileTree = document.querySelector('.file-tree');
+            if (fileTree) {
+                fileTree.classList.remove('drag-over');
+            }
+            document.querySelectorAll('.file-tree-item.dragging').forEach(el => {
+                el.classList.remove('dragging');
+            });
+        }
+    }
+
     // Initialize all features
     function initializeFeatures() {
         // Wait for all DOM elements to be ready
@@ -1144,80 +1664,37 @@ document.addEventListener('DOMContentLoaded', () => {
                 initPreviewResize();
                 initResizableColumns();
                 
+                // Add click outside handler for file explorer
+                document.addEventListener('click', (e) => {
+                    const fileExplorer = document.querySelector('.file-explorer');
+                    if (fileExplorer && !fileExplorer.contains(e.target)) {
+                        // Clear selections
+                        selectedFiles.clear();
+                        document.querySelectorAll('.file-tree-item.selected').forEach(el => {
+                            el.classList.remove('selected');
+                        });
+                    }
+                });
+                
                 // Initialize event listeners
                 if (treeContainer) {
                     treeContainer.addEventListener('click', handleFileTreeClick);
                     treeContainer.addEventListener('contextmenu', handleFileTreeContextMenu);
-
+                    
+                    // Add keyboard navigation
+                    document.addEventListener('keydown', handleFileTreeKeydown);
+                    
                     // Add drag and drop functionality
-                    let draggedItem = null;
-
-                    treeContainer.addEventListener('dragstart', (e) => {
-                        const item = e.target.closest('.file-tree-item');
-                        if (item) {
-                            draggedItem = item;
-                            item.classList.add('dragging');
-                            e.dataTransfer.effectAllowed = 'move';
-                            e.dataTransfer.setData('text/plain', item.dataset.path);
-                        }
-                    });
-
+                    treeContainer.addEventListener('dragstart', handleDragStart);
                     treeContainer.addEventListener('dragend', (e) => {
                         const item = e.target.closest('.file-tree-item');
                         if (item) {
                             item.classList.remove('dragging');
-                            draggedItem = null;
                         }
                     });
-
-                    treeContainer.addEventListener('dragover', (e) => {
-                        e.preventDefault();
-                        const target = e.target.closest('.file-tree-item');
-                        if (target && target.classList.contains('directory')) {
-                            target.classList.add('drag-over');
-                            e.dataTransfer.dropEffect = 'move';
-                        }
-                    });
-
-                    treeContainer.addEventListener('dragleave', (e) => {
-                        const target = e.target.closest('.file-tree-item');
-                        if (target) {
-                            target.classList.remove('drag-over');
-                        }
-                    });
-
-                    treeContainer.addEventListener('drop', async (e) => {
-                        e.preventDefault();
-                        const target = e.target.closest('.file-tree-item');
-                        if (target && target.classList.contains('directory') && draggedItem) {
-                            target.classList.remove('drag-over');
-                            const sourcePath = draggedItem.dataset.path;
-                            const targetPath = target.dataset.path;
-
-                            try {
-                                const response = await fetch(`${API_BASE_URL}/files/move`, {
-                                    method: 'POST',
-                                    headers: {
-                                        'Content-Type': 'application/json'
-                                    },
-                                    body: JSON.stringify({
-                                        source: sourcePath,
-                                        destination: targetPath
-                                    })
-                                });
-
-                                if (!response.ok) {
-                                    throw new Error('Move failed');
-                                }
-
-                                // Refresh the file tree after successful move
-                                refreshFileTree();
-                            } catch (error) {
-                                console.error('Error moving file:', error);
-                                showError('Failed to move file');
-                            }
-                        }
-                    });
+                    treeContainer.addEventListener('dragover', handleDragOver);
+                    treeContainer.addEventListener('dragleave', handleDragLeave);
+                    treeContainer.addEventListener('drop', handleDrop);
 
                     // Make items draggable
                     treeContainer.addEventListener('mousedown', (e) => {
@@ -1231,21 +1708,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Update the upload file button functionality
                 const uploadFileButton = document.getElementById('upload-file');
                 if (uploadFileButton) {
-                    // Create hidden file input for uploads
-                    const fileInput = document.createElement('input');
-                    fileInput.type = 'file';
-                    fileInput.multiple = true; // Allow multiple file selections
-                    fileInput.style.display = 'none';
-                    fileInput.id = 'file-upload-input'; // Add ID for the context menu reference
-                    document.body.appendChild(fileInput);
+                    // Create hidden file input for file explorer uploads
+                    const fileExplorerInput = document.createElement('input');
+                    fileExplorerInput.type = 'file';
+                    fileExplorerInput.multiple = true;
+                    fileExplorerInput.style.display = 'none';
+                    fileExplorerInput.id = 'file-explorer-upload-input';
+                    document.body.appendChild(fileExplorerInput);
 
                     // Handle file upload button click
                     uploadFileButton.addEventListener('click', () => {
-                        fileInput.click();
+                        fileExplorerInput.click();
                     });
 
-                    // Handle file selection
-                    fileInput.addEventListener('change', async (e) => {
+                    // Handle file selection for file explorer
+                    fileExplorerInput.addEventListener('change', async (e) => {
                         const files = Array.from(e.target.files);
                         if (files.length > 0) {
                             // Show uploading state
@@ -1255,45 +1732,26 @@ document.addEventListener('DOMContentLoaded', () => {
                             let failCount = 0;
                             
                             for (const file of files) {
-                                try {
-                                    const formData = new FormData();
-                                    formData.append('file', file);
-                                    // Files go directly to user_data directory
-                                    formData.append('path', 'user_data');
-
-                                    const response = await fetch(`${API_BASE_URL}/files/upload`, {
-                                        method: 'POST',
-                                        body: formData
-                                    });
-
-                                    if (!response.ok) {
-                                        throw new Error('Upload failed');
-                                    }
+                                const success = await handleFileExplorerUpload(file);
+                                if (success) {
                                     successCount++;
-                                } catch (error) {
-                                    console.error('Error uploading file:', error);
-                                    showError(`Failed to upload file: ${file.name}`);
+                                } else {
                                     failCount++;
                                 }
                             }
-                            
-                            // Refresh the file tree after uploads complete
-                            refreshFileTree();
                             
                             // Remove uploading state
                             uploadFileButton.classList.remove('uploading');
                             
                             // Show status message
                             if (successCount > 0 && failCount === 0) {
-                                // All uploads successful
                                 showNotification(`${successCount} file${successCount !== 1 ? 's' : ''} uploaded successfully`);
                             } else if (successCount > 0 && failCount > 0) {
-                                // Some uploads failed
                                 showNotification(`${successCount} file${successCount !== 1 ? 's' : ''} uploaded, ${failCount} failed`);
                             }
                         }
                         // Reset the file input
-                        fileInput.value = '';
+                        fileExplorerInput.value = '';
                     });
                 }
 

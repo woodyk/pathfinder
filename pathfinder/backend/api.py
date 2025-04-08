@@ -405,7 +405,7 @@ def set_context_length():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route('/api/upload', methods=['POST'])
+@app.route('/api/files/upload', methods=['POST'])
 def upload_file():
     """Handle file uploads and extract text content.
     Files are stored in the frontend/user_data directory for future reference.
@@ -423,12 +423,6 @@ def upload_file():
     if file.filename == '':
         return jsonify({"error": "No file selected"}), 400
     
-    # Check if the file type is allowed
-    if not allowed_file(file.filename):
-        return jsonify({
-            "error": f"File type not allowed. Allowed types: {', '.join(ALLOWED_EXTENSIONS)}"
-        }), 400
-    
     try:
         # Secure the filename and save the file
         filename = secure_filename(file.filename)
@@ -440,22 +434,27 @@ def upload_file():
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(file_path)
         
-        # Extract text from the file
-        extracted_text = extract_text(file_path)
-        
-        if not extracted_text:
-            return jsonify({
-                "error": f"Could not extract text from file: {filename}"
-            }), 400
+        # Try to extract text from the file
+        try:
+            extracted_text = extract_text(file_path)
+            if not extracted_text:
+                extracted_text = None
+        except Exception as e:
+            extracted_text = None
         
         # Return success response with file info
-        return jsonify({
+        response = {
             "message": "File processed and stored successfully",
             "filename": filename,
             "path": file_path,
-            "extracted_text": extracted_text,
             "stored_location": "frontend/user_data"
-        })
+        }
+        
+        # Only include extracted_text if it was successfully extracted
+        if extracted_text is not None:
+            response["extracted_text"] = extracted_text
+        
+        return jsonify(response)
         
     except Exception as e:
         return jsonify({"error": f"Upload failed: {str(e)}"}), 500
@@ -596,6 +595,13 @@ def move_user_file():
         if not os.path.exists(full_source):
             return jsonify({"error": "Source path does not exist"}), 404
         
+        # If destination is a directory, append the source filename
+        if os.path.isdir(full_dest):
+            full_dest = os.path.join(full_dest, os.path.basename(full_source))
+        # If destination is the root directory (user_data), use the source filename
+        elif destination == 'user_data':
+            full_dest = os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(full_source))
+        
         # Create destination directory if it doesn't exist
         os.makedirs(os.path.dirname(full_dest), exist_ok=True)
         
@@ -653,71 +659,15 @@ def get_files_tree():
         return jsonify({"error": f"Failed to get directory tree: {str(e)}"}), 500
 
 
-@app.route('/api/files/copy', methods=['POST'])
-def copy_user_file():
-    """Copy a file or directory within the user_data directory.
-    
-    Request JSON parameters:
-        source (str): Relative path of the source file/directory within user_data
-        destination (str): Relative path of the destination within user_data
-        recursive (bool, optional): Whether to copy directories recursively (default: True)
-    
-    Returns:
-        JSON response indicating success or failure
-    """
-    data = request.json
-    source = data.get('source')
-    destination = data.get('destination')
-    recursive = data.get('recursive', True)
-    
-    if not source or not destination:
-        return jsonify({"error": "Source and destination paths are required"}), 400
-    
-    try:
-        # Ensure both paths are within user_data directory
-        full_source = os.path.abspath(os.path.join(app.config['UPLOAD_FOLDER'], source))
-        full_dest = os.path.abspath(os.path.join(app.config['UPLOAD_FOLDER'], destination))
-        
-        if not (full_source.startswith(os.path.abspath(app.config['UPLOAD_FOLDER'])) and 
-                full_dest.startswith(os.path.abspath(app.config['UPLOAD_FOLDER']))):
-            return jsonify({"error": "Invalid path: Must be within user_data directory"}), 403
-        
-        if not os.path.exists(full_source):
-            return jsonify({"error": "Source path does not exist"}), 404
-        
-        # Create destination directory if it doesn't exist
-        os.makedirs(os.path.dirname(full_dest), exist_ok=True)
-        
-        # Copy the file or directory
-        import shutil
-        if os.path.isdir(full_source):
-            if recursive:
-                shutil.copytree(full_source, full_dest, dirs_exist_ok=True)
-            else:
-                return jsonify({"error": "Source is a directory and recursive is False"}), 400
-        else:
-            shutil.copy2(full_source, full_dest)
-        
-        return jsonify({
-            "success": True,
-            "message": "File/directory copied successfully",
-            "source": source,
-            "destination": destination
-        })
-        
-    except Exception as e:
-        return jsonify({"error": f"Copy operation failed: {str(e)}"}), 500
-
-
 @app.route('/api/files/info', methods=['GET'])
 def get_file_info():
-    """Get detailed information about a file or directory.
+    """Get detailed information and preview of a file.
     
     Query parameters:
-        path (str): Relative path to the file/directory within user_data
+        path (str): Relative path to the file within user_data
     
     Returns:
-        JSON response with file/directory information
+        JSON response with file metadata and preview content
     """
     relative_path = request.args.get('path')
     
@@ -731,113 +681,64 @@ def get_file_info():
             return jsonify({"error": "Invalid path: Must be within user_data directory"}), 403
         
         if not os.path.exists(full_path):
-            return jsonify({"error": "Path does not exist"}), 404
+            return jsonify({"error": "File does not exist"}), 404
         
-        import stat
-        st = os.stat(full_path)
+        if not os.path.isfile(full_path):
+            return jsonify({"error": "Path is not a file"}), 400
         
-        info = {
+        # Get file metadata
+        stat = os.stat(full_path)
+        file_info = {
             "name": os.path.basename(full_path),
             "path": relative_path,
-            "type": "directory" if os.path.isdir(full_path) else "file",
-            "size": st.st_size,
-            "created": st.st_ctime,
-            "modified": st.st_mtime,
-            "accessed": st.st_atime,
-            "permissions": stat.filemode(st.st_mode),
+            "size": stat.st_size,
+            "created": stat.st_ctime,
+            "modified": stat.st_mtime,
+            "accessed": stat.st_atime,
+            "is_readable": os.access(full_path, os.R_OK),
+            "is_writable": os.access(full_path, os.W_OK),
+            "is_executable": os.access(full_path, os.X_OK),
+            "mime_type": None,
+            "preview": None,
+            "preview_type": None
         }
         
-        if os.path.isfile(full_path):
-            # Add file-specific information
-            import mimetypes
-            info.update({
-                "mime_type": mimetypes.guess_type(full_path)[0],
-                "extension": os.path.splitext(full_path)[1].lower()[1:] if os.path.splitext(full_path)[1] else None
-            })
-            
-            # For text files, provide preview if size is reasonable
-            if info["mime_type"] and info["mime_type"].startswith('text/') and st.st_size < 1024 * 1024:  # 1MB limit
+        # Try to determine MIME type
+        import mimetypes
+        mime_type, _ = mimetypes.guess_type(full_path)
+        file_info["mime_type"] = mime_type
+        
+        # Handle preview based on file type
+        if mime_type and mime_type.startswith('image/'):
+            # For images, return the relative path for preview
+            file_info["preview"] = relative_path
+            file_info["preview_type"] = "image"
+        else:
+            # For other files, try to read as text
+            try:
+                with open(full_path, 'r', encoding='utf-8') as f:
+                    lines = []
+                    for i, line in enumerate(f):
+                        if i >= 1000:  # Limit to 1000 lines
+                            break
+                        lines.append(line.rstrip('\n'))
+                    file_info["preview"] = '\n'.join(lines)
+                    file_info["preview_type"] = "text"
+            except UnicodeDecodeError:
+                # If not text, try to extract text content
                 try:
-                    with open(full_path, 'r') as f:
-                        preview = f.read(4096)  # Read first 4KB
-                        info["preview"] = preview
-                        info["preview_truncated"] = len(preview) < st.st_size
-                except:
-                    pass  # Skip preview if there's an error
+                    extracted_text = extract_text(full_path)
+                    if extracted_text:
+                        file_info["preview"] = extracted_text[:10000]  # Limit to 10000 characters
+                        file_info["preview_type"] = "text"
+                except Exception:
+                    # If all else fails, no preview available
+                    file_info["preview_type"] = "none"
         
-        elif os.path.isdir(full_path):
-            # Add directory-specific information
-            items = os.listdir(full_path)
-            info.update({
-                "item_count": len(items),
-                "contains_files": any(os.path.isfile(os.path.join(full_path, item)) for item in items),
-                "contains_dirs": any(os.path.isdir(os.path.join(full_path, item)) for item in items)
-            })
-        
-        return jsonify(info)
+        return jsonify(file_info)
         
     except Exception as e:
         return jsonify({"error": f"Failed to get file info: {str(e)}"}), 500
-
-
-@app.route('/api/files/search', methods=['GET'])
-def search_files():
-    """Search for files and directories in the user_data directory.
-    
-    Query parameters:
-        query (str): Search query (supports wildcards)
-        type (str, optional): Filter by type ('file' or 'directory')
-        recursive (bool, optional): Whether to search recursively (default: True)
-    
-    Returns:
-        JSON response with search results
-    """
-    query = request.args.get('query')
-    file_type = request.args.get('type')
-    recursive = request.args.get('recursive', 'true').lower() == 'true'
-    
-    if not query:
-        return jsonify({"error": "Search query is required"}), 400
-    
-    try:
-        results = []
-        import fnmatch
-        
-        def should_include(entry):
-            if file_type == 'file' and not entry.is_file():
-                return False
-            if file_type == 'directory' and not entry.is_dir():
-                return False
-            return fnmatch.fnmatch(entry.name.lower(), query.lower())
-        
-        def scan_directory(path):
-            try:
-                with os.scandir(path) as entries:
-                    for entry in entries:
-                        if should_include(entry):
-                            results.append({
-                                "name": entry.name,
-                                "path": os.path.relpath(entry.path, app.config['UPLOAD_FOLDER']),
-                                "type": "directory" if entry.is_dir() else "file",
-                                "size": entry.stat().st_size if entry.is_file() else None,
-                                "modified": entry.stat().st_mtime
-                            })
-                        if recursive and entry.is_dir():
-                            scan_directory(entry.path)
-            except Exception as e:
-                print(f"Error scanning directory {path}: {e}")
-        
-        scan_directory(app.config['UPLOAD_FOLDER'])
-        
-        return jsonify({
-            "query": query,
-            "type": file_type,
-            "recursive": recursive,
-            "results": results
-        })
-        
-    except Exception as e:
-        return jsonify({"error": f"Search failed: {str(e)}"}), 500
 
 
 def create_app(test_config=None):
