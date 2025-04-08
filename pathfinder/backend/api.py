@@ -6,7 +6,7 @@
 # Description: RESTful API interface for the Interactor class
 #              Exposes AI interaction functionality for web applications
 # Created: 2025-04-07 10:00:00
-# Modified: 2025-04-07 21:07:59
+# Modified: 2025-04-08 13:17:20
 
 import os
 import json
@@ -20,7 +20,11 @@ from werkzeug.utils import secure_filename
 
 from .interactor import Interactor
 from .textextract import extract_text
-from .tools.search_google import search_google
+from .tools import (
+        search_google,
+        get_weather,
+        get_website
+    )
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
@@ -48,6 +52,8 @@ def get_interactor() -> Interactor:
     if interactor is None:
         interactor = Interactor(stream=True, tools=True)
         interactor.add_function(search_google, name="search_google", description="Search the web for information")  
+        interactor.add_function(get_weather, name="get_weather", description="Get the weather for a specific location")
+        interactor.add_function(get_website, name="get_website", description="Get the content of a specific website")
     return interactor
 
 

@@ -1290,7 +1290,11 @@ document.addEventListener('DOMContentLoaded', () => {
                         hljs.highlightBlock(block);
                     });
                     
-                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                    // Only auto-scroll if user is already at the bottom
+                    const isAtBottom = chatMessages.scrollHeight - chatMessages.scrollTop <= chatMessages.clientHeight + 50;
+                    if (isAtBottom) {
+                        chatMessages.scrollTop = chatMessages.scrollHeight;
+                    }
                 }
             }
         } catch (error) {
