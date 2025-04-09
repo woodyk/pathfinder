@@ -813,6 +813,59 @@ def search_files():
         return jsonify({"error": f"Search failed: {str(e)}"}), 500
 
 
+@app.route('/api/files/copy', methods=['POST'])
+def copy_user_file():
+    """Copy a file or directory within the user_data directory.
+    
+    Request JSON parameters:
+        source (str): Relative path of the source file/directory within user_data
+        destination (str): Relative path of the destination within user_data
+        is_directory (bool): Whether the source is a directory
+    
+    Returns:
+        JSON response indicating success or failure
+    """
+    data = request.json
+    source = data.get('source')
+    destination = data.get('destination')
+    is_directory = data.get('is_directory', False)
+    
+    if not source or not destination:
+        return jsonify({"error": "Source and destination paths are required"}), 400
+    
+    try:
+        # Ensure both paths are within user_data directory
+        full_source = os.path.abspath(os.path.join(app.config['UPLOAD_FOLDER'], source))
+        full_dest = os.path.abspath(os.path.join(app.config['UPLOAD_FOLDER'], destination))
+        
+        if not (full_source.startswith(os.path.abspath(app.config['UPLOAD_FOLDER'])) and 
+                full_dest.startswith(os.path.abspath(app.config['UPLOAD_FOLDER']))):
+            return jsonify({"error": "Invalid path: Must be within user_data directory"}), 403
+        
+        if not os.path.exists(full_source):
+            return jsonify({"error": "Source path does not exist"}), 404
+        
+        # Create destination directory if it doesn't exist
+        os.makedirs(os.path.dirname(full_dest), exist_ok=True)
+        
+        # Copy the file or directory
+        import shutil
+        if is_directory:
+            shutil.copytree(full_source, full_dest)
+        else:
+            shutil.copy2(full_source, full_dest)
+        
+        return jsonify({
+            "success": True,
+            "message": "File/directory copied successfully",
+            "source": source,
+            "destination": destination
+        })
+        
+    except Exception as e:
+        return jsonify({"error": f"Copy operation failed: {str(e)}"}), 500
+
+
 def create_app(test_config=None):
     """Create and configure the Flask application.
     

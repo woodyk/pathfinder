@@ -449,6 +449,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // Handle file cut
+    async function handleCut(paths) {
+        // Store paths in localStorage for paste operation
+        localStorage.setItem('clipboard', JSON.stringify({
+            operation: 'cut',
+            paths: Array.from(paths)
+        }));
+    }
+
     // Handle file copy
     async function handleCopy(paths) {
         // Store paths in localStorage for paste operation
@@ -461,30 +470,118 @@ document.addEventListener('DOMContentLoaded', () => {
     // Handle file paste
     async function handlePaste(targetPath) {
         const clipboard = JSON.parse(localStorage.getItem('clipboard'));
-        if (!clipboard) return;
+        if (!clipboard || !clipboard.paths || clipboard.paths.length === 0) return;
 
         try {
-            for (const path of clipboard.paths) {
-                const fileName = path.split('/').pop();
-                const destination = targetPath + '/' + fileName;
-
-                const response = await fetch(`${API_BASE_URL}/api/files/copy`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        source: path,
-                        destination: destination
-                    })
-                });
-
-                if (!response.ok) throw new Error(`Failed to copy ${path}`);
+            // Get the target item to determine if it's a file or directory
+            const targetItem = document.querySelector(`.file-tree-item[data-path="${targetPath}"]`);
+            
+            // Determine the actual destination path
+            let actualDestinationPath;
+            if (targetItem) {
+                if (targetItem.classList.contains('directory')) {
+                    // If target is a directory, use it directly
+                    actualDestinationPath = targetPath;
+                } else {
+                    // If target is a file, use its parent directory
+                    const parentItem = findParentItem(targetItem);
+                    actualDestinationPath = parentItem ? parentItem.dataset.path : '';
+                }
+            } else {
+                // If no specific target, use the root
+                actualDestinationPath = '';
             }
 
-            refreshFileTree();
+            // Process each item in the clipboard
+            for (const path of clipboard.paths) {
+                // Get the item to determine if it's a directory
+                const sourceItem = document.querySelector(`.file-tree-item[data-path="${path}"]`);
+                const isDirectory = sourceItem && sourceItem.classList.contains('directory');
+                
+                // Construct the destination path
+                const destination = actualDestinationPath 
+                    ? `${actualDestinationPath}/${path.split('/').pop()}`
+                    : path.split('/').pop();
+
+                if (clipboard.operation === 'copy') {
+                    // Copy operation
+                    try {
+                        const response = await fetch(`${API_BASE_URL}/api/files/copy`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Accept': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                source: path,
+                                destination: destination,
+                                is_directory: isDirectory
+                            })
+                        });
+                        
+                        if (!response.ok) {
+                            let errorMessage = 'Failed to copy item';
+                            try {
+                                const errorData = await response.json();
+                                errorMessage = errorData.error || errorMessage;
+                            } catch (e) {
+                                // If response is not JSON, try to get text
+                                const text = await response.text();
+                                errorMessage = text || errorMessage;
+                            }
+                            throw new Error(errorMessage);
+                        }
+                    } catch (error) {
+                        console.error('Error during copy operation:', error);
+                        showNotification(`Error copying item: ${error.message}`, 3000);
+                        continue; // Continue with next item if one fails
+                    }
+                } else if (clipboard.operation === 'cut') {
+                    // Cut operation (move)
+                    try {
+                        const response = await fetch(`${API_BASE_URL}/api/files/move`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Accept': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                source: path,
+                                destination: destination
+                            })
+                        });
+                        
+                        if (!response.ok) {
+                            let errorMessage = 'Failed to move item';
+                            try {
+                                const errorData = await response.json();
+                                errorMessage = errorData.error || errorMessage;
+                            } catch (e) {
+                                // If response is not JSON, try to get text
+                                const text = await response.text();
+                                errorMessage = text || errorMessage;
+                            }
+                            throw new Error(errorMessage);
+                        }
+                    } catch (error) {
+                        console.error('Error during move operation:', error);
+                        showNotification(`Error moving item: ${error.message}`, 3000);
+                        continue; // Continue with next item if one fails
+                    }
+                }
+            }
+            
+            // Clear the clipboard after a cut operation
+            if (clipboard.operation === 'cut') {
+                localStorage.removeItem('clipboard');
+            }
+            
+            // Refresh the file tree to show the changes
+            await refreshFileTree();
+            
         } catch (error) {
-            console.error('Error pasting:', error);
+            console.error('Error in paste operation:', error);
+            showNotification(`Error pasting items: ${error.message}`, 3000);
         }
     }
 
@@ -681,6 +778,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 action: () => handleCopy(selectedFiles)
             },
             {
+                label: 'Cut',
+                icon: '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M19,3L13,9L15,11L22,4V3M12,12.5A0.5,0.5 0 0,1 11.5,12A0.5,0.5 0 0,1 12,11.5A0.5,0.5 0 0,1 12.5,12A0.5,0.5 0 0,1 12,12.5M13,4.2L18.6,9.8L21,7.4L22.4,8.8C22.4,8.8 22.4,8.8 22.4,8.8C22.8,9.2 22.8,9.8 22.4,10.2L21.7,10.9L18.6,14L16.2,11.6L4.8,23H3V21.2L13,11.2M10,5V2H8V5H5V7H8V10H10V7H13V5H10Z"/></svg>',
+                action: () => handleCut(selectedFiles)
+            },
+            {
                 label: 'Paste',
                 icon: '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M19,20H5V4H7V7H17V4H19M12,2A1,1 0 0,1 13,3A1,1 0 0,1 12,4A1,1 0 0,1 11,3A1,1 0 0,1 12,2M19,2H14.82C14.4,0.84 13.3,0 12,0C10.7,0 9.6,0.84 9.18,2H5A2,2 0 0,0 3,4V20A2,2 0 0,0 5,22H19A2,2 0 0,0 21,20V4A2,2 0 0,0 19,2Z"/></svg>',
                 action: () => handlePaste(selectedFiles.values().next().value)
@@ -752,12 +854,11 @@ document.addEventListener('DOMContentLoaded', () => {
     function selectFileTreeItem(item, isMultiSelect = false, isRangeSelect = false) {
         if (!item) return;
         
-        // If it's a directory, don't select it
-        if (item.classList.contains('directory')) return;
+        // Allow directory selection (removing the directory check)
         
         if (isRangeSelect) {
             // Range selection with Shift
-            const allItems = Array.from(document.querySelectorAll('.file-tree-item:not(.directory)'));
+            const allItems = Array.from(document.querySelectorAll('.file-tree-item'));
             const startIndex = allItems.indexOf(lastSelectedItem);
             const endIndex = allItems.indexOf(item);
             
@@ -808,7 +909,8 @@ document.addEventListener('DOMContentLoaded', () => {
     function navigateFileTree(direction) {
         if (!currentFocusedItem) return;
         
-        const allItems = Array.from(document.querySelectorAll('.file-tree-item:not(.directory)'));
+        // Include all items, both files and directories
+        const allItems = Array.from(document.querySelectorAll('.file-tree-item'));
         const visibleItems = allItems.filter(item => {
             // Item is visible if it's not inside a collapsed directory
             const parent = item.parentElement.closest('.file-tree-children');
@@ -842,7 +944,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // If no item is focused yet, focus the first one
         if (!currentFocusedItem) {
-            const firstItem = treeContainer.querySelector('.file-tree-item:not(.directory)');
+            const firstItem = treeContainer.querySelector('.file-tree-item');
             if (firstItem) {
                 focusFileTreeItem(firstItem);
                 return;
@@ -859,7 +961,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 if (e.shiftKey) {
                     // For shift selection, select all items between lastSelectedItem and currentFocusedItem
-                    const allItems = Array.from(document.querySelectorAll('.file-tree-item:not(.directory)'));
+                    const allItems = Array.from(document.querySelectorAll('.file-tree-item'));
                     const visibleItems = allItems.filter(item => {
                         const parent = item.parentElement.closest('.file-tree-children');
                         if (!parent) return true;
@@ -947,52 +1049,40 @@ document.addEventListener('DOMContentLoaded', () => {
                     // For files: double-click equivalent behavior
                     selectFileTreeItem(currentFocusedItem, e.ctrlKey || e.metaKey);
                     updatePreview(currentFocusedItem.dataset.path);
-                    
-                    // Add file to chat input
-                    const path = currentFocusedItem.dataset.path;
-                    if (path) {
-                        // Check if file is already attached
-                        const isAlreadyAttached = pendingAttachments.some(att => att.filename === path.split('/').pop());
-                        if (!isAlreadyAttached) {
-                            // Add file immediately to pending attachments
-                            pendingAttachments.push({
-                                filename: path.split('/').pop(),
-                                text: `[File: ${path.split('/').pop()}]`,
-                                type: 'file'
+                }
+                break;
+                
+            case ' ': // Space
+                e.preventDefault();
+                if (currentFocusedItem) {
+                    // Toggle item selection without losing focus
+                    if (selectedFiles.has(currentFocusedItem.dataset.path)) {
+                        selectedFiles.delete(currentFocusedItem.dataset.path);
+                        currentFocusedItem.classList.remove('selected');
+                    } else {
+                        if (!e.ctrlKey && !e.metaKey) {
+                            // Clear other selections if not multi-select
+                            selectedFiles.clear();
+                            document.querySelectorAll('.file-tree-item.selected').forEach(el => {
+                                el.classList.remove('selected');
                             });
-                            updateFileAttachments();
-                            
-                            // Then fetch file info in the background
-                            fetch(`${API_BASE_URL}/api/files/info?path=${encodeURIComponent(path)}`)
-                                .then(response => {
-                                    if (!response.ok) throw new Error('Failed to get file info');
-                                    return response.json();
-                                })
-                                .then(fileInfo => {
-                                    // Update the attachment with the actual preview if available
-                                    const attachmentIndex = pendingAttachments.findIndex(att => att.filename === fileInfo.name);
-                                    if (attachmentIndex !== -1 && fileInfo.preview) {
-                                        pendingAttachments[attachmentIndex].text = fileInfo.preview;
-                                        updateFileAttachments();
-                                    }
-                                })
-                                .catch(error => {
-                                    console.error('Error getting file content:', error);
-                                });
                         }
+                        selectedFiles.add(currentFocusedItem.dataset.path);
+                        currentFocusedItem.classList.add('selected');
                     }
                 }
                 break;
                 
             case 'a':
-                // Select all files (Ctrl+A)
-                if (e.ctrlKey || e.metaKey) {
+                // Select all files if Ctrl/Cmd+A
+                if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
                     e.preventDefault();
-                    const allFiles = document.querySelectorAll('.file-tree-item:not(.directory)');
+                    const items = Array.from(document.querySelectorAll('.file-tree-item'));
                     selectedFiles.clear();
-                    allFiles.forEach(file => {
-                        selectedFiles.add(file.dataset.path);
-                        file.classList.add('selected');
+                    
+                    items.forEach(item => {
+                        selectedFiles.add(item.dataset.path);
+                        item.classList.add('selected');
                     });
                 }
                 break;
@@ -1015,59 +1105,61 @@ document.addEventListener('DOMContentLoaded', () => {
     function handleFileTreeClick(e) {
         const item = e.target.closest('.file-tree-item');
         if (!item) return;
-
-        // Focus the clicked item
+        
+        // Set focused item
         focusFileTreeItem(item);
 
+        // Check if clicking on toggle button for directories
         const toggle = e.target.closest('.toggle');
         if (toggle && item.classList.contains('directory')) {
             toggleDirectory(item);
             return;
         }
 
-        // Handle file selection
-        if (!item.classList.contains('directory')) {
-            selectFileTreeItem(
-                item,
-                e.ctrlKey || e.metaKey, // Multi-select
-                e.shiftKey // Range select
-            );
+        // Handle item selection
+        selectFileTreeItem(
+            item,
+            e.ctrlKey || e.metaKey, // Multi-select
+            e.shiftKey // Range select
+        );
 
-            // If double clicking or Enter key, add file to chat input
-            if (e.detail === 2 || e.key === 'Enter') {
-                const path = item.dataset.path;
-                if (path) {
-                    // Check if file is already attached
-                    const isAlreadyAttached = pendingAttachments.some(att => att.filename === path.split('/').pop());
-                    if (!isAlreadyAttached) {
-                        // Add file immediately to pending attachments
-                        pendingAttachments.push({
-                            filename: path.split('/').pop(),
-                            text: `[File: ${path.split('/').pop()}]`,
-                            type: 'file'
+        // If double clicking or Enter key on a file, add file to chat input
+        if ((e.detail === 2 || e.key === 'Enter') && !item.classList.contains('directory')) {
+            const path = item.dataset.path;
+            if (path) {
+                // Check if file is already attached
+                const isAlreadyAttached = pendingAttachments.some(att => att.filename === path.split('/').pop());
+                if (!isAlreadyAttached) {
+                    // Add file immediately to pending attachments
+                    pendingAttachments.push({
+                        filename: path.split('/').pop(),
+                        text: `[File: ${path.split('/').pop()}]`,
+                        type: 'file'
+                    });
+                    updateFileAttachments();
+                    
+                    // Then fetch file info in the background
+                    fetch(`${API_BASE_URL}/api/files/info?path=${encodeURIComponent(path)}`)
+                        .then(response => {
+                            if (!response.ok) throw new Error('Failed to get file info');
+                            return response.json();
+                        })
+                        .then(fileInfo => {
+                            // Update the attachment with the actual preview if available
+                            const attachmentIndex = pendingAttachments.findIndex(att => att.filename === fileInfo.name);
+                            if (attachmentIndex !== -1 && fileInfo.preview) {
+                                pendingAttachments[attachmentIndex].text = fileInfo.preview;
+                                updateFileAttachments();
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error getting file content:', error);
                         });
-                        updateFileAttachments();
-                        
-                        // Then fetch file info in the background
-                        fetch(`${API_BASE_URL}/api/files/info?path=${encodeURIComponent(path)}`)
-                            .then(response => {
-                                if (!response.ok) throw new Error('Failed to get file info');
-                                return response.json();
-                            })
-                            .then(fileInfo => {
-                                // Update the attachment with the actual preview if available
-                                const attachmentIndex = pendingAttachments.findIndex(att => att.filename === fileInfo.name);
-                                if (attachmentIndex !== -1 && fileInfo.preview) {
-                                    pendingAttachments[attachmentIndex].text = fileInfo.preview;
-                                    updateFileAttachments();
-                                }
-                            })
-                            .catch(error => {
-                                console.error('Error getting file content:', error);
-                            });
-                    }
                 }
             }
+        } else if (e.detail === 2 && item.classList.contains('directory')) {
+            // Double click on directory toggles it
+            toggleDirectory(item);
         }
     }
 
@@ -1120,7 +1212,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             // Get the current directory path from the selected item or context menu
-            let targetPath = 'user_data';
+            let targetPath = '';
             const selectedItem = document.querySelector('.file-tree-item.selected');
             if (selectedItem && selectedItem.classList.contains('directory')) {
                 targetPath = selectedItem.dataset.path;
@@ -1132,7 +1224,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    path: targetPath + '/' + name
+                    path: targetPath ? `${targetPath}/${name}` : name
                 })
             });
 
@@ -1625,8 +1717,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function handleDragOver(e) {
         e.preventDefault();
-        const target = e.target.closest('.file-tree-item, #file-tree');
-        if (!target) return;
+        const target = e.target.closest('.file-tree-item');
+        const fileTree = document.getElementById('file-tree');
         
         // Remove drag-over from all items
         document.querySelectorAll('.file-tree-item.drag-over, #file-tree.drag-over').forEach(el => {
@@ -1634,14 +1726,25 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         
         // Add drag-over class to target
-        target.classList.add('drag-over');
+        if (target) {
+            target.classList.add('drag-over');
+        } else if (fileTree.contains(e.target) || fileTree === e.target) {
+            // Allow dropping directly on the file tree (root)
+            fileTree.classList.add('drag-over');
+        }
+        
         e.dataTransfer.dropEffect = 'move';
     }
 
     function handleDragLeave(e) {
-        const target = e.target.closest('.file-tree-item, #file-tree');
-        if (!target) return;
-        target.classList.remove('drag-over');
+        const target = e.target.closest('.file-tree-item');
+        const fileTree = document.getElementById('file-tree');
+        
+        if (target) {
+            target.classList.remove('drag-over');
+        } else if (fileTree === e.target || fileTree.contains(e.target)) {
+            fileTree.classList.remove('drag-over');
+        }
     }
 
     async function handleDrop(e) {
@@ -1649,14 +1752,30 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Get the target directory
         const targetItem = e.target.closest('.file-tree-item');
-        if (!targetItem) return;
+        const fileTree = document.getElementById('file-tree');
         
-        // If target is not a directory, use its parent directory
-        let targetPath = targetItem.dataset.path;
-        if (!targetItem.classList.contains('directory')) {
-            const parentItem = findParentItem(targetItem);
-            if (!parentItem) return;
-            targetPath = parentItem.dataset.path;
+        let targetPath;
+        
+        // Check if dropping on a specific item or directly on the file tree
+        if (targetItem) {
+            // If target is not a directory, use its parent directory
+            if (!targetItem.classList.contains('directory')) {
+                const parentItem = findParentItem(targetItem);
+                if (parentItem) {
+                    targetPath = parentItem.dataset.path;
+                } else {
+                    // If no parent found, use the root directory
+                    targetPath = '';
+                }
+            } else {
+                targetPath = targetItem.dataset.path;
+            }
+        } else if (fileTree.contains(e.target) || fileTree === e.target) {
+            // If dropping directly on the file tree (root), use empty path for root
+            targetPath = '';
+        } else {
+            // Not a valid drop target
+            return;
         }
         
         // Get all selected items to move
@@ -1668,15 +1787,59 @@ document.addEventListener('DOMContentLoaded', () => {
             // Move each selected item
             for (const path of pathsToMove) {
                 // Check if we're trying to move a directory into itself or its subdirectories
-                if (path === targetPath || targetPath.startsWith(path + '/')) {
+                if (path === targetPath || (targetPath !== '' && targetPath.startsWith(path + '/'))) {
                     showNotification('Cannot move a directory into itself or its subdirectories', 3000);
                     continue;
                 }
 
+                // Get current item type (file or directory)
+                const isDirectory = document.querySelector(`.file-tree-item[data-path="${path}"]`).classList.contains('directory');
+
                 // Construct the destination path
                 const itemName = path.split('/').pop();
-                const destination = targetPath + '/' + itemName;
+                
+                // Construct the destination path appropriately
+                let destination;
+                if (targetPath === '') {
+                    // If dropping to root, just use the filename without a path prefix
+                    destination = itemName;
+                } else {
+                    // Otherwise use the target path plus filename
+                    destination = targetPath + '/' + itemName;
+                }
+                
+                // Check if the item is already in this location
+                if (path === destination) {
+                    console.log(`Skipping move of ${path} as it's already at the destination`);
+                    continue;
+                }
 
+                // Check if destination already exists
+                try {
+                    const checkResponse = await fetch(`${API_BASE_URL}/api/files/info?path=${encodeURIComponent(destination)}`);
+                    if (checkResponse.ok) {
+                        const existsData = await checkResponse.json();
+                        if (existsData.exists) {
+                            // If destination exists, append a number to make it unique
+                            let counter = 1;
+                            let newDestination = destination;
+                            while (true) {
+                                const checkUnique = await fetch(`${API_BASE_URL}/api/files/info?path=${encodeURIComponent(newDestination)}`);
+                                if (!checkUnique.ok) break;
+                                const uniqueData = await checkUnique.json();
+                                if (!uniqueData.exists) break;
+                                newDestination = `${destination} (${counter})`;
+                                counter++;
+                            }
+                            destination = newDestination;
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error checking destination:', error);
+                }
+
+                console.log(`Moving from ${path} to ${destination}`);
+                
                 const response = await fetch(`${API_BASE_URL}/api/files/move`, {
                     method: 'POST',
                     headers: {
@@ -1686,7 +1849,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     body: JSON.stringify({
                         source: path,
                         destination: destination,
-                        is_directory: selectedItems[0].classList.contains('directory')
+                        is_directory: isDirectory
                     })
                 });
                 
@@ -1708,10 +1871,9 @@ document.addEventListener('DOMContentLoaded', () => {
             await refreshFileTree();
             
             // Clean up drag state
-            const fileTree = document.querySelector('.file-tree');
-            if (fileTree) {
-                fileTree.classList.remove('drag-over');
-            }
+            document.querySelectorAll('.file-tree-item.drag-over, #file-tree.drag-over').forEach(el => {
+                el.classList.remove('drag-over');
+            });
             document.querySelectorAll('.file-tree-item.dragging').forEach(el => {
                 el.classList.remove('dragging');
             });
@@ -1721,10 +1883,9 @@ document.addEventListener('DOMContentLoaded', () => {
             showNotification(`Error moving item: ${error.message}`, 3000);
             
             // Clean up drag state even on error
-            const fileTree = document.querySelector('.file-tree');
-            if (fileTree) {
-                fileTree.classList.remove('drag-over');
-            }
+            document.querySelectorAll('.file-tree-item.drag-over, #file-tree.drag-over').forEach(el => {
+                el.classList.remove('drag-over');
+            });
             document.querySelectorAll('.file-tree-item.dragging').forEach(el => {
                 el.classList.remove('dragging');
             });

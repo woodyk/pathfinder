@@ -211,6 +211,7 @@ body {
     background-color: var(--hover-bg);
     border: 2px dashed var(--accent-color);
     border-radius: 4px;
+    padding: 6px;
 }
 
 .file-tree-item {
@@ -1286,4 +1287,18 @@ body {
 
 .file-tree-item:focus {
     outline: none;
+}
+
+/* File tree drag and drop */
+.file-tree.drag-over {
+    background-color: var(--hover-bg);
+    border: 2px dashed var(--accent-color);
+    border-radius: 4px;
+    padding: 6px;
+}
+
+.file-tree-item.directory.drag-over {
+    background-color: var(--hover-bg);
+    border: 1px dashed var(--accent-color);
+    border-radius: 4px;
 }
