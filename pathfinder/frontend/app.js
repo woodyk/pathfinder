@@ -49,8 +49,8 @@ document.addEventListener('DOMContentLoaded', () => {
         html: true,
         linkify: true,
         typographer: true,
-        breaks: false, // Disable automatic line breaks
-        maxNesting: 20,
+        breaks: true, // Enable automatic line breaks
+        maxNesting: 100,
         highlight: function (str, lang) {
             if (lang && hljs.getLanguage(lang)) {
                 try {
@@ -60,6 +60,14 @@ document.addEventListener('DOMContentLoaded', () => {
             return ''; // use external default escaping
         }
     });
+
+    // Enable available markdown-it plugins
+    if (window.markdownitEmoji) {
+        md.use(window.markdownitEmoji);
+    }
+    if (window.markdownitTaskLists) {
+        md.use(window.markdownitTaskLists);
+    }
 
     // Add custom renderer rules to control spacing
     md.renderer.rules.paragraph_open = function() {
@@ -97,10 +105,6 @@ document.addEventListener('DOMContentLoaded', () => {
     md.renderer.rules.ordered_list_item_close = function() {
         return '</li>';
     };
-
-    // Use markdown-it plugins
-    md.use(window.markdownitEmoji);
-    md.use(window.markdownitTaskLists);
 
     // Initialize textarea height
     function initTextarea() {
@@ -1389,35 +1393,38 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Convert the chunk to text
                 const chunk = new TextDecoder().decode(value);
                 
-                try {
-                    // Check if this is a tool call notification
-                    const notification = JSON.parse(chunk);
-                    if (notification.type === 'tool_call') {
-                        if (notification.status === 'started') {
-                            updateLoadingText(loadingDiv, `Using ${notification.tool_name}`);
-                        } else if (notification.status === 'completed') {
-                            updateLoadingText(loadingDiv, 'Thinking');
+                // Only try to parse as JSON if the chunk starts with '{'
+                if (chunk.trim().startsWith('{')) {
+                    try {
+                        const notification = JSON.parse(chunk);
+                        if (notification.type === 'tool_call') {
+                            if (notification.status === 'started') {
+                                updateLoadingText(loadingDiv, `Using ${notification.tool_name}`);
+                            } else if (notification.status === 'completed') {
+                                updateLoadingText(loadingDiv, 'Thinking');
+                            }
+                            continue; // Skip processing this chunk as content
                         }
-                        continue; // Skip processing this chunk as content
+                    } catch (e) {
+                        // If JSON parsing fails, treat as regular content
                     }
-                } catch (e) {
-                    // Not a JSON notification, treat as regular content
-                    if (!assistantMessage) {
-                        // Create assistant message container on first content
-                        assistantMessage = document.createElement('div');
-                        assistantMessage.className = 'message assistant';
-                        contentDiv = document.createElement('div');
-                        contentDiv.className = 'markdown-content';
-                        assistantMessage.appendChild(contentDiv);
-                        
-                        // Replace loading indicator with assistant message
-                        loadingDiv.replaceWith(assistantMessage);
-                    }
-                    accumulatedText += chunk;
                 }
                 
+                if (!assistantMessage) {
+                    // Create assistant message container on first content
+                    assistantMessage = document.createElement('div');
+                    assistantMessage.className = 'message assistant';
+                    contentDiv = document.createElement('div');
+                    contentDiv.className = 'markdown-content';
+                    assistantMessage.appendChild(contentDiv);
+                    
+                    // Replace loading indicator with assistant message
+                    loadingDiv.replaceWith(assistantMessage);
+                }
+                accumulatedText += chunk;
+                
                 if (contentDiv) {
-                    // Update the message with the accumulated text
+                    // Update the message with markdown rendering
                     contentDiv.innerHTML = md.render(accumulatedText);
                     
                     // Highlight code blocks
@@ -2333,7 +2340,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Theme color picker
     const themeColorPicker = document.getElementById('theme-color-picker');
+    
+    // Load saved theme color from localStorage
+    const savedThemeColor = localStorage.getItem('themeColor');
+    if (savedThemeColor) {
+        themeColorPicker.value = savedThemeColor;
+        // Generate and apply themes with saved color
+        currentCustomThemes.dark = generateThemeFromPrimaryColor(savedThemeColor, true);
+        currentCustomThemes.light = generateThemeFromPrimaryColor(savedThemeColor, false);
+        const isDark = root.getAttribute('data-theme') === 'dark';
+        applyTheme(isDark ? currentCustomThemes.dark : currentCustomThemes.light);
+    }
+
     themeColorPicker.addEventListener('input', function(e) {
+        // Save the selected color to localStorage
+        localStorage.setItem('themeColor', e.target.value);
+        
         // Generate both light and dark themes
         currentCustomThemes.dark = generateThemeFromPrimaryColor(e.target.value, true);
         currentCustomThemes.light = generateThemeFromPrimaryColor(e.target.value, false);
@@ -2365,6 +2387,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const isDark = root.getAttribute('data-theme') === 'dark';
         applyTheme(defaultThemes[isDark ? 'dark' : 'light']);
         themeColorPicker.value = isDark ? '#2f81f7' : '#0969da';
+        // Clear saved theme color from localStorage
+        localStorage.removeItem('themeColor');
         showNotification('Theme reset to defaults');
     });
 
