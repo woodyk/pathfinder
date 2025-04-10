@@ -21,11 +21,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initialize theme from localStorage or default to dark
     const savedTheme = localStorage.getItem('theme') || 'dark';
     root.setAttribute('data-theme', savedTheme);
-    themeToggle.checked = savedTheme === 'light';
+    themeToggle.checked = savedTheme === 'light'; // Invert the checked state
 
     // Handle theme toggle
     themeToggle.addEventListener('change', () => {
-        const newTheme = themeToggle.checked ? 'light' : 'dark';
+        const newTheme = themeToggle.checked ? 'dark' : 'light';
         root.setAttribute('data-theme', newTheme);
         localStorage.setItem('theme', newTheme);
 
@@ -66,8 +66,10 @@ document.addEventListener('DOMContentLoaded', () => {
         return '<p style="margin: 0.25em 0;">';
     };
 
-    md.renderer.rules.list_item_open = function() {
-        return '<li style="margin: 0.1em 0;">';
+    md.renderer.rules.list_item_open = function(tokens, idx) {
+        const token = tokens[idx];
+        const info = token.info;
+        return `<li style="margin: 0.1em 0; list-style-type: decimal;">`;
     };
 
     md.renderer.rules.heading_open = function(tokens, idx) {
@@ -81,7 +83,19 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     md.renderer.rules.ordered_list_open = function() {
-        return '<ol style="margin: 0.25em 0;">';
+        return '<ol style="margin: 0.25em 0; counter-reset: item;">';
+    };
+
+    // Override the default ordered list item renderer
+    md.renderer.rules.ordered_list_item_open = function(tokens, idx) {
+        const token = tokens[idx];
+        const info = token.info;
+        return `<li style="margin: 0.1em 0; display: list-item; list-style-type: decimal;">`;
+    };
+
+    // Add custom rule for ordered list item content
+    md.renderer.rules.ordered_list_item_close = function() {
+        return '</li>';
     };
 
     // Use markdown-it plugins
@@ -1123,7 +1137,7 @@ document.addEventListener('DOMContentLoaded', () => {
             e.shiftKey // Range select
         );
 
-        // If double clicking or Enter key on a file, add file to chat input
+        // Only handle double-click or Enter key for adding to chat
         if ((e.detail === 2 || e.key === 'Enter') && !item.classList.contains('directory')) {
             const path = item.dataset.path;
             if (path) {
@@ -1157,9 +1171,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         });
                 }
             }
-        } else if (e.detail === 2 && item.classList.contains('directory')) {
-            // Double click on directory toggles it
-            toggleDirectory(item);
         }
     }
 
@@ -1449,6 +1460,41 @@ document.addEventListener('DOMContentLoaded', () => {
     // Add resize handles to panes
     function initResizableColumns() {
         const panes = document.querySelectorAll('.pane');
+        const defaultWidths = {
+            'file-explorer': '300px',
+            'ai-chat': 'auto',
+            'tools': '400px'
+        };
+
+        // Load saved widths from localStorage
+        const savedWidths = JSON.parse(localStorage.getItem('paneWidths')) || {};
+        
+        // Apply saved widths or defaults
+        panes.forEach(pane => {
+            const paneClass = Array.from(pane.classList).find(cls => cls !== 'pane');
+            const savedWidth = savedWidths[paneClass];
+            if (savedWidth) {
+                pane.style.width = savedWidth;
+            } else if (defaultWidths[paneClass]) {
+                pane.style.width = defaultWidths[paneClass];
+            }
+        });
+
+        // Add reset layout button handlers
+        document.querySelectorAll('#reset-layout').forEach(button => {
+            button.addEventListener('click', () => {
+                // Reset to default widths
+                panes.forEach(pane => {
+                    const paneClass = Array.from(pane.classList).find(cls => cls !== 'pane');
+                    if (defaultWidths[paneClass]) {
+                        pane.style.width = defaultWidths[paneClass];
+                    }
+                });
+                // Clear saved widths
+                localStorage.removeItem('paneWidths');
+                showNotification('Layout reset to defaults');
+            });
+        });
         
         panes.forEach((pane, index) => {
             // Don't add handle to the last pane
@@ -1496,8 +1542,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
 
                 document.addEventListener('mouseup', () => {
+                    if (!isResizing) return;
                     isResizing = false;
                     handle.classList.remove('active');
+
+                    // Save the new widths to localStorage
+                    const widths = {};
+                    panes.forEach(pane => {
+                        const paneClass = Array.from(pane.classList).find(cls => cls !== 'pane');
+                        widths[paneClass] = pane.style.width;
+                    });
+                    localStorage.setItem('paneWidths', JSON.stringify(widths));
                 });
             }
         });
@@ -1512,6 +1567,24 @@ document.addEventListener('DOMContentLoaded', () => {
         let startY;
         let startHeight;
         let startTreeHeight;
+        let isMaximized = false;
+        const defaultHeight = 100;
+        const containerHeight = fileTreeContainer.parentElement.offsetHeight;
+        const maxHeight = Math.floor(window.innerHeight / 2);
+
+        // Double click handler
+        resizeHandle.addEventListener('dblclick', () => {
+            if (isMaximized) {
+                // Restore to default height
+                previewPanel.style.height = `${defaultHeight}px`;
+                fileTreeContainer.style.height = `${containerHeight - defaultHeight - 4}px`;
+            } else {
+                // Maximize the preview to half window height
+                previewPanel.style.height = `${maxHeight}px`;
+                fileTreeContainer.style.height = `${containerHeight - maxHeight - 4}px`;
+            }
+            isMaximized = !isMaximized;
+        });
 
         resizeHandle.addEventListener('mousedown', (e) => {
             isResizing = true;
@@ -2088,5 +2161,216 @@ document.addEventListener('DOMContentLoaded', () => {
         document.addEventListener('DOMContentLoaded', initializeFeatures);
     } else {
         initializeFeatures();
+    }
+
+    // Store default themes
+    const defaultThemes = {
+        dark: {
+            '--bg-primary': '#0d1117',
+            '--bg-secondary': '#161b22',
+            '--bg-tertiary': '#21262d',
+            '--text-primary': '#c9d1d9',
+            '--text-secondary': '#8b949e',
+            '--border-color': '#30363d',
+            '--accent-color': '#2f81f7',
+            '--hover-color': '#1f2937',
+            '--user-message-bg': '#1f2937',
+            '--assistant-message-bg': '#161b22',
+            '--error-color': '#f85149',
+            '--button-bg': '#2f3640',
+            '--button-hover-bg': '#3d4451',
+            '--button-active': '#2f81f7',
+            '--button-text': '#8b949e',
+            '--button-hover-text': '#c9d1d9',
+            '--focus-color': '#2f81f7',
+            '--selection-bg': 'rgba(47, 129, 247, 0.1)',
+            '--selection-border': 'rgba(47, 129, 247, 0.3)'
+        },
+        light: {
+            '--bg-primary': '#ffffff',
+            '--bg-secondary': '#f6f8fa',
+            '--bg-tertiary': '#ebedef',
+            '--text-primary': '#24292f',
+            '--text-secondary': '#57606a',
+            '--border-color': '#d0d7de',
+            '--accent-color': '#0969da',
+            '--hover-color': '#f3f4f6',
+            '--user-message-bg': '#f3f4f6',
+            '--assistant-message-bg': '#ffffff',
+            '--error-color': '#cf222e',
+            '--button-bg': '#f3f4f6',
+            '--button-hover-bg': '#e5e7eb',
+            '--button-active': '#0969da',
+            '--button-text': '#57606a',
+            '--button-hover-text': '#24292f',
+            '--focus-color': '#0969da',
+            '--selection-bg': 'rgba(9, 105, 218, 0.1)',
+            '--selection-border': 'rgba(9, 105, 218, 0.3)'
+        }
+    };
+
+    // Store current custom themes
+    let currentCustomThemes = {
+        dark: null,
+        light: null
+    };
+
+    function generateThemeFromPrimaryColor(primaryColor, isDark = true) {
+        // Convert hex to HSL
+        const hexToHSL = (hex) => {
+            hex = hex.replace('#', '');
+            const r = parseInt(hex.substring(0, 2), 16) / 255;
+            const g = parseInt(hex.substring(2, 4), 16) / 255;
+            const b = parseInt(hex.substring(4, 6), 16) / 255;
+            
+            const max = Math.max(r, g, b);
+            const min = Math.min(r, g, b);
+            
+            let l = (max + min) / 2;
+            let s = 0;
+            if (max !== min) {
+                s = l > 0.5 ? (max - min) / (2 - max - min) : (max - min) / (max + min);
+            }
+            
+            let h = 0;
+            if (max !== min) {
+                switch (max) {
+                    case r: h = (g - b) / (max - min) + (g < b ? 6 : 0); break;
+                    case g: h = (b - r) / (max - min) + 2; break;
+                    case b: h = (r - g) / (max - min) + 4; break;
+                }
+                h /= 6;
+            }
+            
+            return [h * 360, s * 100, l * 100];
+        };
+
+        const hslToHex = (h, s, l) => {
+            l /= 100;
+            const a = s * Math.min(l, 1 - l) / 100;
+            const f = n => {
+                const k = (n + h / 30) % 12;
+                const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+                return Math.round(255 * color).toString(16).padStart(2, '0');
+            };
+            return `#${f(0)}${f(8)}${f(4)}`;
+        };
+
+        const [h, s, l] = hexToHSL(primaryColor);
+        
+        if (isDark) {
+            // Dark theme generation
+            const bgPrimary = hslToHex(h, s, 8);
+            const bgSecondary = hslToHex(h, s, 12);
+            const bgTertiary = hslToHex(h, s, 16);
+            const textPrimary = hslToHex(h, s, 85);
+            const textSecondary = hslToHex(h, s, 60);
+            const borderColor = hslToHex(h, s, 20);
+            const hoverColor = hslToHex(h, s, 25);
+            const buttonBg = hslToHex(h, s, 22);
+            const buttonHoverBg = hslToHex(h, s, 28);
+            const errorHue = (h + 180) % 360;
+            const errorColor = hslToHex(errorHue, 80, 60);
+            
+            return {
+                '--bg-primary': bgPrimary,
+                '--bg-secondary': bgSecondary,
+                '--bg-tertiary': bgTertiary,
+                '--text-primary': textPrimary,
+                '--text-secondary': textSecondary,
+                '--border-color': borderColor,
+                '--accent-color': primaryColor,
+                '--hover-color': hoverColor,
+                '--user-message-bg': hoverColor,
+                '--assistant-message-bg': bgSecondary,
+                '--error-color': errorColor,
+                '--button-bg': buttonBg,
+                '--button-hover-bg': buttonHoverBg,
+                '--button-active': primaryColor,
+                '--button-text': textSecondary,
+                '--button-hover-text': textPrimary,
+                '--focus-color': primaryColor,
+                '--selection-bg': `${primaryColor}1a`,
+                '--selection-border': `${primaryColor}4d`
+            };
+        } else {
+            // Light theme generation
+            const bgPrimary = hslToHex(h, s, 100);
+            const bgSecondary = hslToHex(h, s, 98);
+            const bgTertiary = hslToHex(h, s, 96);
+            const textPrimary = hslToHex(h, s, 20);
+            const textSecondary = hslToHex(h, s, 40);
+            const borderColor = hslToHex(h, s, 90);
+            const hoverColor = hslToHex(h, s, 95);
+            const buttonBg = hslToHex(h, s, 96);
+            const buttonHoverBg = hslToHex(h, s, 92);
+            const errorHue = (h + 180) % 360;
+            const errorColor = hslToHex(errorHue, 80, 50);
+            
+            return {
+                '--bg-primary': bgPrimary,
+                '--bg-secondary': bgSecondary,
+                '--bg-tertiary': bgTertiary,
+                '--text-primary': textPrimary,
+                '--text-secondary': textSecondary,
+                '--border-color': borderColor,
+                '--accent-color': primaryColor,
+                '--hover-color': hoverColor,
+                '--user-message-bg': hoverColor,
+                '--assistant-message-bg': bgSecondary,
+                '--error-color': errorColor,
+                '--button-bg': buttonBg,
+                '--button-hover-bg': buttonHoverBg,
+                '--button-active': primaryColor,
+                '--button-text': textSecondary,
+                '--button-hover-text': textPrimary,
+                '--focus-color': primaryColor,
+                '--selection-bg': `${primaryColor}1a`,
+                '--selection-border': `${primaryColor}4d`
+            };
+        }
+    }
+
+    // Theme color picker
+    const themeColorPicker = document.getElementById('theme-color-picker');
+    themeColorPicker.addEventListener('input', function(e) {
+        // Generate both light and dark themes
+        currentCustomThemes.dark = generateThemeFromPrimaryColor(e.target.value, true);
+        currentCustomThemes.light = generateThemeFromPrimaryColor(e.target.value, false);
+        
+        // Apply the appropriate theme based on current toggle state
+        const isDark = root.getAttribute('data-theme') === 'dark';
+        applyTheme(isDark ? currentCustomThemes.dark : currentCustomThemes.light);
+    });
+
+    // Theme toggle
+    themeToggle.addEventListener('change', function(e) {
+        const isDark = !e.target.checked; // Invert the checked state
+        const theme = isDark ? 'dark' : 'light';
+        root.setAttribute('data-theme', theme);
+        localStorage.setItem('theme', theme);
+        
+        // Apply the appropriate theme
+        if (currentCustomThemes.dark && currentCustomThemes.light) {
+            applyTheme(isDark ? currentCustomThemes.dark : currentCustomThemes.light);
+        } else {
+            applyTheme(defaultThemes[theme]);
+        }
+    });
+
+    // Reset theme button
+    const resetThemeButton = document.getElementById('reset-theme');
+    resetThemeButton.addEventListener('click', function() {
+        currentCustomThemes = { dark: null, light: null };
+        const isDark = root.getAttribute('data-theme') === 'dark';
+        applyTheme(defaultThemes[isDark ? 'dark' : 'light']);
+        themeColorPicker.value = isDark ? '#2f81f7' : '#0969da';
+        showNotification('Theme reset to defaults');
+    });
+
+    function applyTheme(theme) {
+        Object.entries(theme).forEach(([key, value]) => {
+            root.style.setProperty(key, value);
+        });
     }
 }); 

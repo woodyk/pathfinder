@@ -184,11 +184,15 @@ body {
     background-color: var(--bg-tertiary);
     color: var(--text-primary);
     font-size: 13px;
+    font-family: inherit;
+    outline: none !important;
+    box-shadow: none !important;
 }
 
 .search-input:focus {
-    outline: none;
+    outline: none !important;
     border-color: var(--accent-color);
+    box-shadow: none !important;
 }
 
 .file-tree-container {
@@ -353,10 +357,10 @@ body {
 }
 
 .preview-panel {
-    height: 300px;
+    height: 100px;
     min-height: 100px;
     max-height: calc(100vh - 200px);
-    overflow-y: auto;
+    overflow: hidden;
     background-color: var(--bg-secondary);
     border-top: 1px solid var(--border-color);
     position: relative;
@@ -408,16 +412,29 @@ body {
     color: var(--text-primary);
     margin-bottom: 4px;
     font-size: 11px;
+    flex-shrink: 0;
 }
 
 .preview-panel .preview-content {
-    color: var(--text-secondary);
-    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+    flex: 1;
+    overflow-y: auto;
     white-space: pre-wrap;
-    font-size: 12px;
+    font-family: monospace;
+    padding: 10px;
+    background: #ffffff;
+    border-radius: 4px;
+    color: #000000;
+    font-size: 13px;
     line-height: 1.4;
-    overflow-wrap: break-word;
-    word-break: break-word;
+    margin-top: 8px;
+    border: 1px solid var(--border-color);
+}
+
+.preview-panel .preview-content * {
+    font-family: inherit;
+    font-size: inherit;
+    color: #000000;
+    background: transparent;
 }
 
 .preview-panel .meta-item {
@@ -426,6 +443,7 @@ body {
     align-items: baseline;
     font-size: 11px;
     margin-bottom: 2px;
+    flex-shrink: 0;
 }
 
 .preview-panel .meta-label {
@@ -928,14 +946,14 @@ body {
 /* Theme toggle switch */
 .theme-toggle-container {
     position: fixed;
-    bottom: 20px;
-    right: 20px;
+    bottom: 16px;
+    right: 16px;
     z-index: 1000;
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 8px;
-    border-radius: 20px;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 12px;
     background-color: var(--bg-tertiary);
     border: 1px solid var(--border-color);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
@@ -973,8 +991,8 @@ body {
 
 .theme-toggle {
     position: relative;
-    width: 50px;
-    height: 24px;
+    width: 36px;
+    height: 18px;
 }
 
 .theme-toggle input {
@@ -992,15 +1010,15 @@ body {
     bottom: 0;
     background-color: var(--bg-secondary);
     transition: .4s;
-    border-radius: 24px;
+    border-radius: 20px;
     border: 1px solid var(--border-color);
 }
 
 .theme-toggle-slider:before {
     position: absolute;
     content: "";
-    height: 18px;
-    width: 18px;
+    height: 12px;
+    width: 12px;
     left: 2px;
     bottom: 2px;
     background-color: var(--accent-color);
@@ -1009,13 +1027,13 @@ body {
 }
 
 .theme-toggle input:checked + .theme-toggle-slider:before {
-    transform: translateX(26px);
+    transform: translateX(18px);
 }
 
 .theme-toggle-icon {
     color: var(--text-secondary);
-    width: 16px;
-    height: 16px;
+    width: 12px;
+    height: 12px;
 }
 
 /* File Explorer Styles */
@@ -1233,13 +1251,7 @@ body {
 }
 
 #file-search {
-    width: 100%;
-    padding: 0.5rem;
-    padding-right: 30px;
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    background: var(--background-color);
-    color: var(--text-color);
+    /* Remove all styles since they're handled by .search-input */
 }
 
 .search-clear-button {
@@ -1301,4 +1313,58 @@ body {
     background-color: var(--hover-bg);
     border: 1px dashed var(--accent-color);
     border-radius: 4px;
+}
+
+.theme-color-picker {
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: none;
+    border-radius: 3px;
+    background: transparent;
+    cursor: pointer;
+    margin-left: 2px;
+}
+
+.theme-color-picker::-webkit-color-swatch-wrapper {
+    padding: 0;
+}
+
+.theme-color-picker::-webkit-color-swatch {
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+}
+
+.theme-color-picker::-moz-color-swatch {
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+}
+
+.theme-reset-button {
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: none;
+    border-radius: 3px;
+    background: transparent;
+    cursor: pointer;
+    margin-left: 2px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.theme-reset-button:hover {
+    color: var(--text-primary);
+    background-color: var(--hover-bg);
+}
+
+#reset-layout svg {
+    transform: scale(1);
+    transition: transform 0.3s ease;
+}
+
+#reset-layout:hover svg {
+    transform: scale(1.2);
 }
