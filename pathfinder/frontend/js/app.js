@@ -392,30 +392,59 @@ class ChatInterface {
                                 // Update loading text to show tool name
                                 const loadingText = loadingDiv.querySelector('.loading-text');
                                 if (loadingText) {
-                                    loadingText.textContent = `Running ${toolCallData.tool_name}`;
+                                    loadingText.textContent = toolCallData.tool_name;
                                 }
                             } else if (toolCallData.status === 'completed') {
-                                // Tool call is complete, prepare for assistant's response
+                                // Reset loading text
                                 const loadingText = loadingDiv.querySelector('.loading-text');
                                 if (loadingText) {
                                     loadingText.textContent = 'Thinking';
                                 }
                             }
-                            continue;
+                            continue; // Skip adding this chunk to accumulatedText
                         }
                     } catch (e) {
                         // If parsing fails, treat as normal content
                     }
                 }
                 
-                // Replace loading div with content div if we have actual content
-                if (chunk.trim() && wrapperDiv.contains(loadingDiv)) {
+                // Only add non-tool-call chunks to accumulatedText
+                accumulatedText += chunk;
+                
+                // Remove loading div if we have content
+                if (accumulatedText.trim() && wrapperDiv.contains(loadingDiv)) {
                     wrapperDiv.removeChild(loadingDiv);
                     wrapperDiv.appendChild(contentDiv);
                 }
                 
-                accumulatedText += chunk;
-                contentDiv.querySelector('p').textContent = accumulatedText;
+                // Render markdown if available
+                if (window.markdownit) {
+                    const md = window.markdownit({
+                        html: false,
+                        linkify: true,
+                        typographer: true,
+                        highlight: function (str, lang) {
+                            if (lang && window.hljs && window.hljs.getLanguage(lang)) {
+                                try {
+                                    return window.hljs.highlight(str, { language: lang }).value;
+                                } catch (__) {}
+                            }
+                            return ''; // Use external default escaping
+                        }
+                    });
+                    
+                    // Add plugins if available
+                    if (window.markdownitEmoji) md.use(window.markdownitEmoji);
+                    if (window.markdownitTaskLists) md.use(window.markdownitTaskLists);
+                    
+                    contentDiv.innerHTML = md.render(accumulatedText);
+                } else {
+                    // Fallback to simple rendering
+                    contentDiv.innerHTML = `<p>${accumulatedText}</p>`;
+                }
+                
+                // Scroll to bottom
+                this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
             }
         } catch (error) {
             console.error('Error sending message:', error);
