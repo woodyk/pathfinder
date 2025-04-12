@@ -1,7 +1,866 @@
+//
+// File: app.js
+// Author: Wadih Khairallah
+// Description: 
+// Created: 2025-04-12 01:34:02
+// API Base URL
+const API_BASE_URL = 'http://127.0.0.1:5000';
+
+// Add this code in an appropriate place, possibly near the document.addEventListener('DOMContentLoaded') section:
+
+// Chat Interface for managing chat messages
+class ChatInterface {
+    constructor() {
+        this.messagesContainer = document.querySelector('.chat-messages');
+        this.chatInput = document.querySelector('.chat-input textarea');
+        this.sendButton = document.querySelector('#send-button');
+        this.chatArea = document.querySelector('.ai-chat');
+        this.messages = [];
+        this.currentTranscriptId = null;
+        this.currentTranscriptName = "Untitled";
+        this.useLocalStorage = false;
+        this.hasActivity = false; // Track if there's been any chat activity
+        this.hasBeenRenamed = false; // Track if the session has been renamed
+        
+        // Add transcript name display in header
+        const chatHeader = document.querySelector('.ai-chat .pane-header h2');
+        this.transcriptNameContainer = document.createElement('div');
+        this.transcriptNameContainer.className = 'transcript-name-container';
+        this.transcriptNameDisplay = document.createElement('span');
+        this.transcriptNameDisplay.className = 'transcript-name editable';
+        this.transcriptNameDisplay.textContent = this.currentTranscriptName;
+        this.transcriptNameDisplay.title = "Click to rename transcript";
+        this.transcriptNameContainer.appendChild(this.transcriptNameDisplay);
+        chatHeader.parentNode.insertBefore(this.transcriptNameContainer, chatHeader.nextSibling);
+        
+        // Add new session button
+        const chatControls = document.querySelector('.chat-controls');
+        this.newSessionBtn = document.createElement('button');
+        this.newSessionBtn.id = 'new-session';
+        this.newSessionBtn.className = 'icon-button';
+        this.newSessionBtn.title = 'New Conversation';
+        this.newSessionBtn.innerHTML = `
+            <svg viewBox="0 0 24 24" width="16" height="16">
+                <path fill="currentColor" d="M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z"/>
+            </svg>
+        `;
+        chatControls.insertBefore(this.newSessionBtn, chatControls.firstChild);
+        
+        this.bindEvents();
+        
+        // Set the API base URL
+        this.API_BASE_URL = 'http://127.0.0.1:5000';  // Base URL for API calls
+        
+        // Add message saving functionality
+        this.saveMessageToTranscript = async (role, content, timestamp = null) => {
+            if (!this.currentTranscriptId) return;
+            
+            try {
+                // Get existing transcript
+                const response = await fetch(`${API_BASE_URL}/api/transcripts/${this.currentTranscriptId}`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to get transcript');
+                }
+                
+                const data = await response.json();
+                const transcript = data.transcript;
+                
+                // Add the new message to the transcript's messages array
+                transcript.messages.push({
+                    role: role,
+                    content: content,
+                    timestamp: timestamp || Date.now()
+                });
+                
+                // Update the transcript with the new messages array
+                const updateResponse = await fetch(`${API_BASE_URL}/api/transcripts/${this.currentTranscriptId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        messages: transcript.messages
+                    })
+                });
+                
+                if (!updateResponse.ok) {
+                    throw new Error('Failed to save message to transcript');
+                }
+                
+                return true;
+            } catch (error) {
+                console.error('Error saving message to transcript:', error);
+                return false;
+            }
+        };
+        
+        // Add localStorage fallback
+        this.saveTranscriptToLocalStorage = () => {
+            try {
+                // Get existing transcripts
+                const localTranscripts = JSON.parse(localStorage.getItem('transcripts') || '[]');
+                
+                // Find if this transcript exists
+                const existingIndex = localTranscripts.findIndex(t => t.id === this.currentTranscriptId);
+                
+                const updatedTranscript = {
+                    id: this.currentTranscriptId,
+                    name: this.currentTranscriptName,
+                    messages: this.messages,
+                    lastModified: new Date().toISOString(),
+                    date: new Date().toISOString()
+                };
+                
+                // Update or add transcript
+                if (existingIndex >= 0) {
+                    localTranscripts[existingIndex] = updatedTranscript;
+                } else {
+                    localTranscripts.unshift(updatedTranscript);
+                }
+                
+                // Save back to localStorage
+                localStorage.setItem('transcripts', JSON.stringify(localTranscripts));
+            } catch (error) {
+                console.error('Error saving to localStorage:', error);
+            }
+        };
+        
+        // Add these helper functions to the class
+        this.showLoading = () => {
+            const messagesContainer = document.querySelector('.chat-messages');
+            const loadingDiv = document.createElement('div');
+            loadingDiv.className = 'loading-message';
+            loadingDiv.innerHTML = `
+                <div class="loading-indicator">
+                    <div class="dot"></div>
+                    <div class="dot"></div>
+                    <div class="dot"></div>
+                </div>
+                <div class="loading-text">Thinking...</div>
+            `;
+            messagesContainer.appendChild(loadingDiv);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            return loadingDiv;
+        };
+        
+        this.removeLoading = (loadingDiv) => {
+            if (loadingDiv && loadingDiv.parentNode) {
+                loadingDiv.parentNode.removeChild(loadingDiv);
+            }
+        };
+    }
+    
+    bindEvents() {
+        // Clear chat button
+        document.getElementById('clear-chat').addEventListener('click', () => {
+            this.clearMessages();
+            this.startNewSession();
+        });
+        
+        // Bind send button
+        const sendButton = document.getElementById('send-button');
+        if (sendButton) {
+            sendButton.addEventListener('click', () => this.handleSendMessage());
+        }
+        
+        // Bind Enter key in textarea (Shift+Enter for new line)
+        const textarea = document.querySelector('.chat-input textarea');
+        if (textarea) {
+            textarea.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    this.handleSendMessage();
+                }
+            });
+            
+            // Auto-resize textarea as user types
+            textarea.addEventListener('input', () => {
+                textarea.style.height = 'auto';
+                textarea.style.height = textarea.scrollHeight + 'px';
+            });
+        }
+        
+        // Manage transcripts button
+        const manageButton = document.getElementById('manage-transcripts');
+        if (manageButton) {
+            manageButton.addEventListener('click', () => {
+                if (window.transcriptManager) {
+                    window.transcriptManager.openManager();
+                }
+            });
+        }
+        
+        // Inline editing for transcript name
+        if (this.transcriptNameDisplay) {
+            this.transcriptNameDisplay.addEventListener('click', (e) => {
+                e.preventDefault();
+                
+                // Create an input element to replace the span
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.className = 'transcript-name-edit';
+                input.value = this.currentTranscriptName;
+                input.style.width = (this.currentTranscriptName.length * 8) + 'px'; // Estimate width
+                input.style.minWidth = '100px';
+                
+                // Replace the span with the input
+                this.transcriptNameContainer.replaceChild(input, this.transcriptNameDisplay);
+                
+                // Focus and select all text
+                input.focus();
+                input.select();
+                
+                // Handle Enter key
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        input.blur();
+                    } else if (e.key === 'Escape') {
+                        // Cancel editing
+                        this.transcriptNameContainer.replaceChild(this.transcriptNameDisplay, input);
+                    }
+                });
+                
+                // Handle blur event (when focus is lost)
+                input.addEventListener('blur', () => {
+                    const newName = input.value.trim();
+                    
+                    // Replace the input with the span
+                    this.transcriptNameContainer.replaceChild(this.transcriptNameDisplay, input);
+                    
+                    // Update the name if changed
+                    if (newName && newName !== this.currentTranscriptName) {
+                        this.currentTranscriptName = newName;
+                        this.transcriptNameDisplay.textContent = newName;
+                        this.hasBeenRenamed = true;
+                        
+                        if (this.currentTranscriptId) {
+                            this.updateTranscriptName(this.currentTranscriptId, newName);
+                        } else if (this.hasActivity) {
+                            // Create a new transcript if there's activity but no ID yet
+                            this.createNewTranscript();
+                        }
+                        
+                        // Notify transcript manager to refresh
+                        if (window.transcriptManager) {
+                            window.transcriptManager.loadTranscripts();
+                        }
+                    }
+                });
+            });
+        }
+        
+        // New session button
+        if (this.newSessionBtn) {
+            this.newSessionBtn.addEventListener('click', () => this.startNewSession());
+        }
+    }
+
+    async handleSendMessage() {
+        const textarea = document.querySelector('.chat-input textarea');
+        const userInput = textarea.value.trim();
+        if (!userInput) return;
+
+        // Clear input
+        textarea.value = '';
+        textarea.style.height = '24px';
+
+        // If this is the first message and we don't have a transcript ID, create one
+        if (!this.currentTranscriptId && this.hasActivity === false) {
+            // Create a new transcript silently 
+            await this.createNewTranscript();
+        }
+
+        // Add user message
+        this.addMessage('user', userInput);
+
+        // Create assistant message container
+        const assistantMessage = document.createElement('div');
+        assistantMessage.className = 'chat-message assistant';
+        
+        // Create wrapper for content
+        const wrapperDiv = document.createElement('div');
+        wrapperDiv.className = 'message-content-wrapper';
+        
+        // Create loading indicator with "Thinking..." text
+        const loadingDiv = document.createElement('div');
+        loadingDiv.className = 'loading-content';
+        loadingDiv.innerHTML = `
+            <div class="loading-text">Thinking</div>
+            <div class="loading-dots">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+        `;
+        wrapperDiv.appendChild(loadingDiv);
+        assistantMessage.appendChild(wrapperDiv);
+        
+        // Add message to the UI
+        this.messagesContainer.appendChild(assistantMessage);
+        this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+        
+        // Prepare content div for streaming
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'message-content';
+        contentDiv.innerHTML = `<p></p>`;
+        
+        let startTime = Date.now();
+        let accumulatedText = '';
+        
+        // Prepare fetch request to the API
+        const apiEndpoint = `${this.API_BASE_URL}/api/interact`;
+        
+        // Extract text from attachments
+        const allAttachments = window.pendingAttachments || [];
+        const attachmentTexts = allAttachments.map(a => a.text);
+        
+        // Prepare request body
+        const requestBody = {
+            message: userInput,
+            attachments: attachmentTexts,
+            stream: true,
+            tools: true
+        };
+        
+        // Add transcript ID if we have one
+        if (this.currentTranscriptId) {
+            requestBody.transcript_id = this.currentTranscriptId;
+        }
+        
+        // Clear file attachments after sending
+        window.pendingAttachments = [];
+        updateFileAttachments();
+        
+        try {
+            const response = await fetch(apiEndpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'text/plain'
+                },
+                body: JSON.stringify(requestBody)
+            });
+            
+            if (!response.ok) {
+                throw new Error(`API error: ${response.status} ${response.statusText}`);
+            }
+            
+            const reader = response.body.getReader();
+            
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) {
+                    // Save the final message to transcript
+                    this.messages.push({ 
+                        role: 'assistant', 
+                        content: accumulatedText,
+                        timestamp: startTime
+                    });
+                    
+                    // Save to transcript if we have an ID
+                    if (this.currentTranscriptId) {
+                        this.saveMessageToTranscript('assistant', accumulatedText, startTime);
+                    }
+                    
+                    // Add timestamp to message if enabled
+                    if (this.showTimestamps) {
+                        const timestampDiv = document.createElement('div');
+                        timestampDiv.className = 'message-timestamp';
+                        const date = new Date(startTime);
+                        timestampDiv.textContent = date.toLocaleTimeString();
+                        wrapperDiv.appendChild(timestampDiv);
+                    }
+                    
+                    break;
+                }
+                
+                const chunk = new TextDecoder().decode(value);
+                
+                // Check if this is a tool call notification
+                if (chunk.startsWith('{"type":"tool_call"') || chunk.startsWith('{"type": "tool_call"')) {
+                    try {
+                        const toolCallData = JSON.parse(chunk);
+                        if (toolCallData.type === 'tool_call') {
+                            if (toolCallData.status === 'started') {
+                                // Update loading text to show tool name
+                                const loadingText = loadingDiv.querySelector('.loading-text');
+                                if (loadingText) {
+                                    loadingText.textContent = `Running ${toolCallData.tool_name}`;
+                                }
+                            } else if (toolCallData.status === 'completed') {
+                                // Tool call is complete, prepare for assistant's response
+                                const loadingText = loadingDiv.querySelector('.loading-text');
+                                if (loadingText) {
+                                    loadingText.textContent = 'Thinking';
+                                }
+                            }
+                            continue;
+                        }
+                    } catch (e) {
+                        // If parsing fails, treat as normal content
+                    }
+                }
+                
+                // Replace loading div with content div if we have actual content
+                if (chunk.trim() && wrapperDiv.contains(loadingDiv)) {
+                    wrapperDiv.removeChild(loadingDiv);
+                    wrapperDiv.appendChild(contentDiv);
+                }
+                
+                accumulatedText += chunk;
+                contentDiv.querySelector('p').textContent = accumulatedText;
+            }
+        } catch (error) {
+            console.error('Error sending message:', error);
+            
+            // Show error message
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'message-content error';
+            errorDiv.textContent = `Error: ${error.message}`;
+            
+            // Replace loading div with error message
+            if (wrapperDiv.contains(loadingDiv)) {
+                wrapperDiv.removeChild(loadingDiv);
+            }
+            wrapperDiv.appendChild(errorDiv);
+        }
+    }
+    
+    async startNewSession() {
+        try {
+            // Reset transcript state first
+            this.currentTranscriptId = null;
+            this.currentTranscriptName = "Untitled";
+            
+            // Then clear all messages in the UI and memory
+            this.clearMessages();
+            
+            // Update UI
+            if (this.transcriptNameDisplay) {
+                this.transcriptNameDisplay.textContent = this.currentTranscriptName;
+            }
+            
+            // Reset activity tracking
+            this.hasActivity = false;
+            this.hasBeenRenamed = false;
+            
+            // Clear any system prompt modifications by resetting to default
+            try {
+                // This will reset system message to default
+                const response = await fetch(`${this.API_BASE_URL}/api/messages`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (!response.ok) {
+                    console.error('Failed to reset messages on the server');
+                }
+            } catch (error) {
+                console.error('Error resetting messages on the server:', error);
+            }
+            
+            // Show notification
+            if (window.showNotification) {
+                window.showNotification('Started new session', 2000);
+            }
+        } catch (error) {
+            console.error('Error starting new session:', error);
+        }
+    }
+
+    async createNewTranscript() {
+        try {
+            // Create a new transcript with the current name
+            const response = await fetch(`${API_BASE_URL}/api/transcripts`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    name: this.currentTranscriptName,
+                    messages: [] // Start with an empty messages array
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`Failed to create transcript: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            
+            // Validate response
+            if (!data.transcript || !data.transcript.id) {
+                throw new Error('Invalid response from server');
+            }
+            
+            // Update transcript information
+            this.currentTranscriptId = data.transcript.id;
+            this.currentTranscriptName = data.transcript.name;
+            
+            // Update UI
+            if (this.transcriptNameDisplay) {
+                this.transcriptNameDisplay.textContent = this.currentTranscriptName;
+                this.transcriptNameDisplay.classList.add('highlight');
+                
+                // Remove highlight after a few seconds
+                setTimeout(() => {
+                    this.transcriptNameDisplay.classList.remove('highlight');
+                }, 5000);
+            }
+            
+            console.log(`Created new transcript: ${this.currentTranscriptName} (ID: ${this.currentTranscriptId})`);
+            
+            // Notify transcript manager to refresh list if available
+            if (window.transcriptManager) {
+                window.transcriptManager.loadTranscripts();
+            }
+            
+            return data.transcript;
+        } catch (error) {
+            console.error('Error creating transcript:', error);
+            // Continue without a transcript ID - will use localStorage fallback
+            return null;
+        }
+    }
+
+    async renameCurrentTranscript() {
+        const newName = prompt('Enter a new name for this conversation:', this.currentTranscriptName || 'Untitled');
+        if (newName && newName !== this.currentTranscriptName) {
+            this.currentTranscriptName = newName;
+            this.hasBeenRenamed = true;
+            
+            if (this.currentTranscriptId) {
+                this.updateTranscriptName(this.currentTranscriptId, newName);
+            } else if (this.hasActivity) {
+                // Create a new transcript if there's activity but no ID yet
+                this.createNewTranscript();
+            }
+            
+            showNotification(`Renamed to "${newName}"`, 2000);
+            
+            // Notify transcript manager to refresh
+            if (window.transcriptManager) {
+                window.transcriptManager.loadTranscripts();
+            }
+        }
+    }
+
+    async updateTranscriptName(transcriptId, newName) {
+        try {
+            const response = await fetch(`${this.API_BASE_URL}/api/transcripts/${transcriptId}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({ name: newName }),
+                credentials: 'include'
+            });
+
+            if (!response.ok) {
+                console.error(`Failed to update transcript name: ${response.statusText}`);
+                // Update UI anyway
+                this.transcriptNameDisplay.textContent = newName;
+                return;
+            }
+            
+            const data = await response.json();
+            this.transcriptNameDisplay.textContent = data.transcript.name;
+            
+            // Also update in localStorage for redundancy
+            this.saveTranscriptToLocalStorage();
+        } catch (error) {
+            console.error('Error updating transcript name:', error);
+            // Update UI anyway
+            this.transcriptNameDisplay.textContent = newName;
+        }
+    }
+
+    async updateTranscript() {
+        if (!this.currentTranscriptId) return;
+
+        try {
+            // First get the current transcript to avoid overwriting any other changes
+            const getResponse = await fetch(`${this.API_BASE_URL}/api/transcripts/${this.currentTranscriptId}`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                credentials: 'include'
+            });
+            
+            if (!getResponse.ok) {
+                throw new Error(`Failed to get current transcript: ${getResponse.statusText}`);
+            }
+            
+            const currentData = await getResponse.json();
+            const transcript = currentData.transcript;
+            
+            // Update messages array
+            transcript.messages = this.messages;
+            
+            // Update the transcript
+            const updateResponse = await fetch(`${this.API_BASE_URL}/api/transcripts/${this.currentTranscriptId}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({
+                    messages: this.messages
+                }),
+                credentials: 'include'
+            });
+
+            if (!updateResponse.ok) {
+                console.error(`Failed to update transcript: ${updateResponse.statusText}`);
+                // Try to save to localStorage as fallback
+                this.saveTranscriptToLocalStorage();
+                return;
+            }
+            
+            // Also update in localStorage for redundancy
+            this.saveTranscriptToLocalStorage();
+        } catch (error) {
+            console.error('Error updating transcript:', error);
+            // Attempt to save to localStorage as fallback
+            this.saveTranscriptToLocalStorage();
+        }
+    }
+    
+    addMessage(role, content, timestamp = null) {
+        const messagesContainer = this.messagesContainer;
+        if (!messagesContainer) return;
+        
+        // Create message element
+        const messageElement = document.createElement('div');
+        messageElement.className = `chat-message ${role}`;
+        
+        // Create avatar for user or assistant
+        const avatar = document.createElement('div');
+        avatar.className = 'avatar';
+        
+        if (role === 'user') {
+            avatar.innerHTML = `<svg viewBox="0 0 24 24"><path fill="currentColor" d="M12,4A4,4 0 0,1 16,8A4,4 0 0,1 12,12A4,4 0 0,1 8,8A4,4 0 0,1 12,4M12,14C16.42,14 20,15.79 20,18V20H4V18C4,15.79 7.58,14 12,14Z"></path></svg>`;
+        } else {
+            avatar.innerHTML = `<svg viewBox="0 0 24 24"><path fill="currentColor" d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,8.39C13.57,9.4 15.42,10 17.42,10C18.2,10 18.95,9.91 19.67,9.74C19.88,10.45 20,11.21 20,12C20,16.41 16.41,20 12,20C9,20 6.39,18.34 5,15.89L6.75,14V13A1.25,1.25 0 0,1 8,11.75A1.25,1.25 0 0,1 9.25,13V14H12M14.5,10.5C13.74,10.5 13.12,10.73 12.5,10.73C11.88,10.73 11.26,10.5 10.5,10.5C9.47,10.5 8.5,11.54 8.5,12.57C8.5,13.38 9.11,14 9.92,14H10.08C10.89,14 11.5,13.38 11.5,12.57C11.5,12.05 12.05,11.5 12.57,11.5C13.38,11.5 14,10.89 14,10.08V9.92C14,9.11 13.38,8.5 12.57,8.5C11.5,8.5 10.5,9.3 10.5,10.5"></path></svg>`;
+        }
+        
+        messageElement.appendChild(avatar);
+        
+        // Create content wrapper
+        const messageContentWrapper = document.createElement('div');
+        messageContentWrapper.className = 'message-content-wrapper';
+        
+        // Create the message content
+        const messageContent = document.createElement('div');
+        messageContent.className = 'message-content';
+        
+        // Check if content is a tool call notification
+        if (role === 'assistant' && content.startsWith('{"type":"tool_call"') || content.startsWith('{"type": "tool_call"')) {
+            try {
+                const toolCallData = JSON.parse(content);
+                
+                if (toolCallData.type === 'tool_call') {
+                    // Tool call notification
+                    if (toolCallData.status === 'started') {
+                        // Create loading animation for tool call
+                        messageContent.innerHTML = `
+                            <div class="loading-content">
+                                <span class="loading-text">${toolCallData.tool_name}</span>
+                                <div class="loading-dots">
+                                    <span></span>
+                                    <span></span>
+                                    <span></span>
+                                </div>
+                            </div>
+                        `;
+                        messageElement.id = `tool-call-${toolCallData.tool_name}`;
+                    } else if (toolCallData.status === 'completed') {
+                        // Remove the temporary loading message for this tool
+                        const existingToolCall = document.getElementById(`tool-call-${toolCallData.tool_name}`);
+                        if (existingToolCall) {
+                            existingToolCall.remove();
+                        }
+                        // Don't add a completed message to the chat
+                        return;
+                    }
+                } else {
+                    // Not a valid tool call, treat as normal content
+                    messageContent.innerHTML = `<p>${content}</p>`;
+                }
+            } catch (e) {
+                // If parsing fails, just render the content as normal
+                messageContent.innerHTML = `<p>${content}</p>`;
+            }
+        } else if (role === 'assistant') {
+            try {
+                // Use markdown-it for rendering if available
+                if (window.markdownit) {
+                    const md = window.markdownit({
+                        html: false,
+                        linkify: true,
+                        typographer: true,
+                        highlight: function (str, lang) {
+                            if (lang && window.hljs && window.hljs.getLanguage(lang)) {
+                                try {
+                                    return window.hljs.highlight(str, { language: lang }).value;
+                                } catch (__) {}
+                            }
+                            return ''; // Use external default escaping
+                        }
+                    });
+                    
+                    // Add plugins if available
+                    if (window.markdownitEmoji) md.use(window.markdownitEmoji);
+                    if (window.markdownitTaskLists) md.use(window.markdownitTaskLists);
+                    
+                    messageContent.innerHTML = md.render(content);
+                } else {
+                    // Fallback to simple rendering
+                    messageContent.innerHTML = `<p>${content}</p>`;
+                }
+            } catch (error) {
+                console.error('Error rendering markdown:', error);
+                messageContent.innerHTML = `<p>${content}</p>`;
+            }
+        } else {
+            // For user messages, just use text content with line breaks
+            // Remove any attachment content (text after '\n\nAttached files:')
+            let displayContent = content;
+            const attachmentIndex = content.indexOf('\n\nAttached files:');
+            if (attachmentIndex > -1) {
+                displayContent = content.substring(0, attachmentIndex);
+            }
+            
+            const formattedContent = displayContent.replace(/\n/g, '<br>');
+            messageContent.innerHTML = `<p>${formattedContent}</p>`;
+        }
+        
+        // Add message content to wrapper
+        messageContentWrapper.appendChild(messageContent);
+        
+        // Add timestamp
+        const messageTimestamp = document.createElement('div');
+        messageTimestamp.className = 'message-timestamp';
+        
+        // Use provided timestamp or current time
+        const msgTimestamp = timestamp || Date.now();
+         
+        // Format the timestamp
+        const date = new Date(msgTimestamp);
+        const formattedDate = date.toLocaleString(undefined, {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+         
+        messageTimestamp.textContent = formattedDate;
+         
+        // Add timestamp to wrapper
+        messageContentWrapper.appendChild(messageTimestamp);
+         
+        // Add wrapper to message element
+        messageElement.appendChild(messageContentWrapper);
+        
+        // Add to messages container
+        messagesContainer.appendChild(messageElement);
+        
+        // Scroll to the bottom
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+         
+        // Add to message history with timestamp
+        this.messages.push({ 
+            role, 
+            content,
+            timestamp: msgTimestamp
+        });
+         
+        // Mark that we have activity
+        this.hasActivity = true;
+         
+        // Save to transcript if we have an ID
+        if (this.currentTranscriptId) {
+            // Using setTimeout to make it non-blocking
+            setTimeout(() => {
+                try {
+                    console.log(`Saving message to transcript ${this.currentTranscriptId} (role: ${role})`);
+                    this.saveMessageToTranscript(role, content, msgTimestamp);
+                } catch (error) {
+                    console.error('Error saving message to transcript:', error);
+                    
+                    // If saving to the database fails, at least try localStorage
+                    this.saveTranscriptToLocalStorage();
+                }
+            }, 0);
+        } else if (this.hasActivity && role === 'user') {
+            // If the first user message is being added and we don't have a transcript yet,
+            // create one and then save this message to it
+            setTimeout(async () => {
+                try {
+                    // Create a new transcript
+                    const transcript = await this.createNewTranscript();
+                    if (transcript && transcript.id) {
+                        // Now save the message to this new transcript
+                        this.saveMessageToTranscript(role, content, msgTimestamp);
+                    } else {
+                        // Fallback to localStorage if transcript creation failed
+                        this.saveTranscriptToLocalStorage();
+                    }
+                } catch (error) {
+                    console.error('Error creating transcript from first message:', error);
+                    this.saveTranscriptToLocalStorage();
+                }
+            }, 0);
+        } else {
+            // No transcript ID yet, save to localStorage only
+            this.saveTranscriptToLocalStorage();
+        }
+        
+        return messageElement;
+    }
+    
+    clearMessages() {
+        if (this.messagesContainer) {
+            this.messagesContainer.innerHTML = '';
+        }
+        this.messages = [];
+        
+        // Only update transcript if we have a valid ID
+        if (this.currentTranscriptId) {
+            this.updateTranscript();
+        }
+    }
+    
+    getMessages() {
+        return this.messages;
+    }
+}
+
+// Initialize and expose the chat interface globally
+document.addEventListener('DOMContentLoaded', () => {
+    // Initialize any existing functionality
+    
+    // Add chat interface initialization
+    window.chatInterface = new ChatInterface();
+});
+
 document.addEventListener('DOMContentLoaded', () => {
     const chatInput = document.querySelector('.chat-input textarea');
     const sendButton = document.querySelector('#send-button');
     const clearButton = document.querySelector('#clear-chat');
+    const configButton = document.querySelector('#config-chat');
     const chatMessages = document.querySelector('.chat-messages');
     const API_BASE_URL = 'http://127.0.0.1:5000';
 
@@ -10,14 +869,63 @@ document.addEventListener('DOMContentLoaded', () => {
     let selectedFiles = new Set();
     let contextMenu = null;
     let searchTimeout = null;
-    let pendingAttachments = [];
+    
+    // Initialize global variables for file attachments
+    window.pendingAttachments = [];
+    window.selectedFiles = new Set();
+    
     let currentFocusedItem = null;
     let lastSelectedItem = null;
-
+    let cachedModels = null; // Cache for available models
+    
+    // Expose functions to window for global access
+    window.updateFileAttachments = updateFileAttachments;
+    window.removeFileAttachment = removeFileAttachment;
+    
     // Theme handling
     const themeToggle = document.getElementById('theme-toggle-input');
     const root = document.documentElement;
     
+    // Import Window Manager
+    let windowManagerLoaded = false; // Flag to track if window manager is loaded
+    
+    // Preload and initialize window manager
+    import('./window-manager.js').then(({default: windowManager}) => {
+        // Make window manager globally available
+        window.windowManager = windowManager;
+        windowManagerLoaded = true;
+        
+        // Execute any queued operations that were waiting for the window manager
+        if (window._windowManagerQueue && window._windowManagerQueue.length > 0) {
+            window._windowManagerQueue.forEach(fn => fn(windowManager));
+            window._windowManagerQueue = [];
+        }
+    }).catch(error => {
+        console.error('Error loading Window Manager:', error);
+    });
+    
+    // Queue for operations that need the window manager
+    window._windowManagerQueue = window._windowManagerQueue || [];
+    
+    // Helper function to use window manager safely
+    function withWindowManager(callback) {
+        if (windowManagerLoaded && window.windowManager) {
+            callback(window.windowManager);
+        } else {
+            window._windowManagerQueue.push(callback);
+        }
+    }
+
+    // Initialize theme from localStorage or default to dark
+    
+    // Import Window Manager
+    import('./window-manager.js').then(({default: windowManager}) => {
+        // The window manager is now available
+        window.windowManager = windowManager;
+    }).catch(error => {
+        console.error('Error loading Window Manager:', error);
+    });
+
     // Initialize theme from localStorage or default to dark
     const savedTheme = localStorage.getItem('theme') || 'dark';
     root.setAttribute('data-theme', savedTheme);
@@ -114,25 +1022,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Adjust textarea height
     function adjustTextareaHeight() {
-        const maxHeight = 200;
-        const minHeight = 24;
-        
-        // Reset height to minimum to properly calculate scroll height
-        chatInput.style.height = `${minHeight}px`;
-        
-        // Calculate new height
-        const scrollHeight = chatInput.scrollHeight;
-        const newHeight = Math.min(scrollHeight, maxHeight);
-        
-        // Set the new height
-        chatInput.style.height = `${newHeight}px`;
-        
-        // If content exceeds max height, enable scrolling
-        if (scrollHeight > maxHeight) {
-            chatInput.style.overflowY = 'auto';
-        } else {
-            chatInput.style.overflowY = 'hidden';
-        }
+        chatInput.style.height = 'auto';
+        chatInput.style.height = (chatInput.scrollHeight) + 'px';
     }
 
     // Add message to chat interface
@@ -216,8 +1107,10 @@ document.addEventListener('DOMContentLoaded', () => {
     function createFileChip(filename, index) {
         const chip = document.createElement('div');
         chip.className = 'file-chip';
+        // Limit filename to 12 characters, adding ellipsis if longer
+        const displayName = filename.length > 12 ? filename.substring(0, 12) + '...' : filename;
         chip.innerHTML = `
-            <span class="file-name">${filename}</span>
+            <span class="file-name" title="${filename}">${displayName}</span>
             <span class="remove-file" data-index="${index}" title="Remove file">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
                     <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -231,9 +1124,15 @@ document.addEventListener('DOMContentLoaded', () => {
     // Update file attachments display
     function updateFileAttachments() {
         const container = document.querySelector('.file-attachments');
+        if (!container) return;
+        
         container.innerHTML = '';
         
-        pendingAttachments.forEach((attachment, index) => {
+        if (!window.pendingAttachments || !window.pendingAttachments.length) {
+            return;
+        }
+        
+        window.pendingAttachments.forEach((attachment, index) => {
             const chip = createFileChip(attachment.filename, index);
             container.appendChild(chip);
         });
@@ -241,14 +1140,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Remove file attachment
     function removeFileAttachment(index) {
-        pendingAttachments.splice(index, 1);
+        if (!window.pendingAttachments) return;
+        window.pendingAttachments.splice(index, 1);
         updateFileAttachments();
     }
 
     // File upload handling
     function handleFileUpload(file) {
+        if (!window.pendingAttachments) {
+            window.pendingAttachments = [];
+        }
+        
         // Check if file with the same name is already attached
-        const isAlreadyAttached = pendingAttachments.some(att => att.filename === file.name);
+        const isAlreadyAttached = window.pendingAttachments.some(att => att.filename === file.name);
         if (isAlreadyAttached) {
             console.log(`File ${file.name} is already attached`);
             // Show a brief notification to the user
@@ -284,9 +1188,9 @@ document.addEventListener('DOMContentLoaded', () => {
         })
         .then(data => {
             // Store the extracted text
-            pendingAttachments.push({
+            window.pendingAttachments.push({
                 filename: data.filename,
-                text: data.extracted_text
+                text: data.extracted_text || ""
             });
 
             // Update file chips display
@@ -791,6 +1695,17 @@ document.addEventListener('DOMContentLoaded', () => {
             },
             { type: 'separator' },
             {
+                label: 'View',
+                icon: '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9M12,17A5,5 0 0,1 7,12A5,5 0 0,1 12,7A5,5 0 0,1 17,12A5,5 0 0,1 12,17M12,4.5C7,4.5 2.73,7.61 1,12C2.73,16.39 7,19.5 12,19.5C17,19.5 21.27,16.39 23,12C21.27,7.61 17,4.5 12,4.5Z"/></svg>',
+                action: () => {
+                    const path = selectedFiles.values().next().value;
+                    if (path) {
+                        createDocumentReader(path);
+                    }
+                },
+                disabled: isDirectory
+            },
+            {
                 label: 'Copy',
                 icon: '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"/></svg>',
                 action: () => handleCopy(selectedFiles)
@@ -807,14 +1722,15 @@ document.addEventListener('DOMContentLoaded', () => {
             },
             {
                 label: 'Rename',
-                icon: '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"/></svg>',
+                icon: '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M18.41,5.8L17.2,4.59C16.41,3.8 15.14,3.8 14.34,4.59L4.59,14.34L3,21L9.66,19.41L19.41,9.66C20.2,8.86 20.2,7.59 19.41,6.8M6.21,18.21L5.08,17.08L13.6,8.56L14.74,9.7L6.21,18.21M7.45,16.96L15.97,8.44L16.74,9.21L8.22,17.73L7.45,16.96Z"/></svg>',
                 action: () => handleRename(selectedFiles.values().next().value)
             },
             { type: 'separator' },
             {
                 label: 'Delete',
                 icon: '<svg viewBox="0 0 24 24"><path fill="currentColor" d="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z"/></svg>',
-                action: () => handleDelete()
+                action: () => handleDelete(),
+                danger: true
             }
         ];
 
@@ -826,14 +1742,23 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 const menuItem = document.createElement('div');
                 menuItem.className = 'context-menu-item';
+                if (item.disabled) {
+                    menuItem.classList.add('disabled');
+                }
+                if (item.danger) {
+                    menuItem.classList.add('danger');
+                    menuItem.style.color = 'var(--error-color)';
+                }
                 menuItem.innerHTML = `
                     <div class="icon">${item.icon}</div>
                     <span>${item.label}</span>
                 `;
-                menuItem.addEventListener('click', () => {
-                    item.action();
-                    contextMenu.remove();
-                });
+                if (!item.disabled) {
+                    menuItem.addEventListener('click', () => {
+                        item.action();
+                        contextMenu.remove();
+                    });
+                }
                 contextMenu.appendChild(menuItem);
             }
         });
@@ -1134,48 +2059,37 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        // Handle double-click for files
+        if (e.detail === 2 && !item.classList.contains('directory')) {
+            const path = item.dataset.path;
+            // Get file content and add to pending attachments
+            fetch(`${API_BASE_URL}/api/files/info?path=${encodeURIComponent(path)}`)
+                .then(response => {
+                    if (!response.ok) throw new Error('Failed to get file info');
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.preview) {
+                        pendingAttachments.push({
+                            filename: data.name,
+                            text: data.preview
+                        });
+                        updateFileAttachments();
+                    }
+                })
+                .catch(error => {
+                    console.error('Error getting file content:', error);
+                    showNotification(`Error getting file content: ${error.message}`, 3000);
+                });
+            return;
+        }
+
         // Handle item selection
         selectFileTreeItem(
             item,
             e.ctrlKey || e.metaKey, // Multi-select
             e.shiftKey // Range select
         );
-
-        // Only handle double-click or Enter key for adding to chat
-        if ((e.detail === 2 || e.key === 'Enter') && !item.classList.contains('directory')) {
-            const path = item.dataset.path;
-            if (path) {
-                // Check if file is already attached
-                const isAlreadyAttached = pendingAttachments.some(att => att.filename === path.split('/').pop());
-                if (!isAlreadyAttached) {
-                    // Add file immediately to pending attachments
-                    pendingAttachments.push({
-                        filename: path.split('/').pop(),
-                        text: `[File: ${path.split('/').pop()}]`,
-                        type: 'file'
-                    });
-                    updateFileAttachments();
-                    
-                    // Then fetch file info in the background
-                    fetch(`${API_BASE_URL}/api/files/info?path=${encodeURIComponent(path)}`)
-                        .then(response => {
-                            if (!response.ok) throw new Error('Failed to get file info');
-                            return response.json();
-                        })
-                        .then(fileInfo => {
-                            // Update the attachment with the actual preview if available
-                            const attachmentIndex = pendingAttachments.findIndex(att => att.filename === fileInfo.name);
-                            if (attachmentIndex !== -1 && fileInfo.preview) {
-                                pendingAttachments[attachmentIndex].text = fileInfo.preview;
-                                updateFileAttachments();
-                            }
-                        })
-                        .catch(error => {
-                            console.error('Error getting file content:', error);
-                        });
-                }
-            }
-        }
     }
 
     // Handle right click on file tree
@@ -1252,54 +2166,32 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function handleDelete() {
-        if (selectedFiles.size === 0) return;
-
-        const confirmMessage = selectedFiles.size === 1 
-            ? 'Are you sure you want to delete this item?' 
-            : `Are you sure you want to delete these ${selectedFiles.size} items?`;
-
-        if (!confirm(confirmMessage)) return;
-
         try {
-            for (const path of selectedFiles) {
-                // Find the corresponding DOM element to check if it's a directory
-                const item = document.querySelector(`.file-tree-item[data-path="${path}"]`);
-                const isDirectory = item && item.classList.contains('directory');
-
-                if (isDirectory) {
-                    // Check if directory has contents
-                    const response = await fetch(`${API_BASE_URL}/api/files/info?path=${encodeURIComponent(path)}`);
-                    if (!response.ok) throw new Error('Failed to check directory contents');
-                    
-                    const data = await response.json();
-                    if (data.contents && data.contents.length > 0) {
-                        const confirmDeleteContents = confirm(
-                            `Warning: The directory "${path.split('/').pop()}" contains ${data.contents.length} items.\n` +
-                            'This will permanently delete all contents. Are you sure you want to continue?'
-                        );
-                        if (!confirmDeleteContents) continue;
-                    }
-                }
-
-                const deleteResponse = await fetch(`${API_BASE_URL}/api/files/delete`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        path: path,
-                        is_directory: isDirectory
-                    })
+            if (selectedFiles.size === 0) return;
+            
+            const fileList = Array.from(selectedFiles);
+            const confirmMessage = fileList.length === 1
+                ? `Are you sure you want to delete "${fileList[0].split('/').pop()}"?`
+                : `Are you sure you want to delete ${fileList.length} items?`;
+            
+            if (!confirm(confirmMessage)) return;
+            
+            // Show loading dialog
+            //showLoadingModal("Deleting files...");
+            
+            // Delete each selected file/folder
+            for (const path of fileList) {
+                const response = await fetch(`${API_BASE_URL}/api/files?path=${encodeURIComponent(path)}`, {
+                    method: 'DELETE'
                 });
-
-                if (!deleteResponse.ok) {
-                    let errorMessage = 'Failed to delete item';
+                
+                if (!response.ok) {
+                    let errorMessage = `Failed to delete ${path}`;
                     try {
-                        const errorData = await deleteResponse.json();
-                        errorMessage = errorData.error || errorMessage;
-                    } catch (e) {
-                        // If response is not JSON, try to get text
-                        const text = await deleteResponse.text();
+                        const data = await response.json();
+                        const text = data.error || data.message;
+                        errorMessage = text || errorMessage;
+                    } catch {
                         errorMessage = text || errorMessage;
                     }
                     throw new Error(errorMessage);
@@ -1314,150 +2206,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Update sendMessage to include selected files
-    async function sendMessage() {
-        const message = chatInput.value.trim();
-        if ((!message && !pendingAttachments.length && selectedFiles.size === 0) || isProcessing) return;
-
-        isProcessing = true;
-        sendButton.disabled = true;
-        
-        // Add user message to chat
-        addMessage(message, 'user');
-        
-        // Clear input and reset height
-        chatInput.value = '';
-        initTextarea();
-        
-        // Show loading indicator
-        const loadingDiv = showLoading();
-        
-        try {
-            // Get text content from selected files
-            const selectedFileContents = [];
-            for (const path of selectedFiles) {
-                try {
-                    const response = await fetch(`${API_BASE_URL}/api/files/info?path=${encodeURIComponent(path)}`);
-                    if (!response.ok) throw new Error(`Failed to get file info for ${path}`);
-                    const fileInfo = await response.json();
-                    
-                    if (fileInfo.preview) {
-                        selectedFileContents.push({
-                            filename: fileInfo.name,
-                            text: fileInfo.preview
-                        });
-                    }
-                } catch (error) {
-                    console.error(`Error getting file content: ${error}`);
-                }
-            }
-            
-            // Combine selected files with pending attachments
-            const allAttachments = [
-                ...pendingAttachments,
-                ...selectedFileContents
-            ];
-            
-            const response = await fetch(`${API_BASE_URL}/api/interact`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    message: message,
-                    attachments: allAttachments.map(att => att.text),
-                    stream: true,
-                    tools: true,
-                    markdown: true
-                })
-            });
-
-            if (!response.ok) {
-                throw new Error('Failed to get response from AI');
-            }
-
-            // Clear pending attachments and update display
-            pendingAttachments = [];
-            updateFileAttachments();
-
-            let accumulatedText = '';
-            let assistantMessage = null;
-            let contentDiv = null;
-
-            // Stream the response
-            const reader = response.body.getReader();
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                // Convert the chunk to text
-                const chunk = new TextDecoder().decode(value);
-                
-                // Only try to parse as JSON if the chunk starts with '{'
-                if (chunk.trim().startsWith('{')) {
-                    try {
-                        const notification = JSON.parse(chunk);
-                        if (notification.type === 'tool_call') {
-                            if (notification.status === 'started') {
-                                updateLoadingText(loadingDiv, `Using ${notification.tool_name}`);
-                            } else if (notification.status === 'completed') {
-                                updateLoadingText(loadingDiv, 'Thinking');
-                            }
-                            continue; // Skip processing this chunk as content
-                        }
-                    } catch (e) {
-                        // If JSON parsing fails, treat as regular content
-                    }
-                }
-                
-                if (!assistantMessage) {
-                    // Create assistant message container on first content
-                    assistantMessage = document.createElement('div');
-                    assistantMessage.className = 'message assistant';
-                    contentDiv = document.createElement('div');
-                    contentDiv.className = 'markdown-content';
-                    assistantMessage.appendChild(contentDiv);
-                    
-                    // Replace loading indicator with assistant message
-                    loadingDiv.replaceWith(assistantMessage);
-                }
-                accumulatedText += chunk;
-                
-                if (contentDiv) {
-                    // Update the message with markdown rendering
-                    contentDiv.innerHTML = md.render(accumulatedText);
-                    
-                    // Highlight code blocks
-                    assistantMessage.querySelectorAll('pre code').forEach((block) => {
-                        hljs.highlightBlock(block);
-                    });
-                    
-                    // Only auto-scroll if user is already at the bottom
-                    const isAtBottom = chatMessages.scrollHeight - chatMessages.scrollTop <= chatMessages.clientHeight + 50;
-                    if (isAtBottom) {
-                        chatMessages.scrollTop = chatMessages.scrollHeight;
-                    }
-                }
-            }
-        } catch (error) {
-            removeLoading(loadingDiv);
-            addMessage('Error: ' + error.message, 'error', true);
-        } finally {
-            isProcessing = false;
-            sendButton.disabled = false;
-            chatInput.focus();
-        }
-    }
-
     // Event listeners
-    sendButton.addEventListener('click', sendMessage);
+    sendButton.addEventListener('click', () => window.chatInterface.handleSendMessage());
     clearButton.addEventListener('click', clearChat);
     
     chatInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             e.stopPropagation(); // Prevent event from bubbling up to document
-            sendMessage();
+            window.chatInterface.handleSendMessage();
         }
     });
 
@@ -1633,7 +2390,7 @@ document.addEventListener('DOMContentLoaded', () => {
         notification.textContent = message;
         document.body.appendChild(notification);
         
-        // Animate in
+        // Show notification with a slight delay for animation
         setTimeout(() => {
             notification.classList.add('show');
         }, 10);
@@ -1642,8 +2399,10 @@ document.addEventListener('DOMContentLoaded', () => {
         setTimeout(() => {
             notification.classList.remove('show');
             setTimeout(() => {
-                notification.remove();
-            }, 300);
+                if (notification.parentElement) {
+                    document.body.removeChild(notification);
+                }
+            }, 300); // Match the CSS transition timing
         }, duration);
     }
 
@@ -2397,4 +3156,355 @@ document.addEventListener('DOMContentLoaded', () => {
             root.style.setProperty(key, value);
         });
     }
+
+    // Track all open document readers
+    const documentReaders = new Map(); // Changed from Set to Map to track by file path
+
+    function createDocumentReader(path) {
+        withWindowManager(windowManager => {
+            // Check if file is already being viewed
+            if (documentReaders.has(path)) {
+                const existingReader = documentReaders.get(path);
+                // Focus the existing window
+                existingReader.focus();
+                return;
+            }
+            
+            // Create a content placeholder
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'document-reader-content';
+            contentDiv.textContent = 'Loading...';
+            
+            // Create the window using the window manager
+            const reader = windowManager.createWindow({
+                title: path.split('/').pop(),
+                content: contentDiv,
+                className: 'document-reader',
+                onClose: () => {
+                    documentReaders.delete(path);
+                }
+            });
+            
+            // Add to tracking map with file path as key
+            documentReaders.set(path, reader);
+            
+            // Load the file content
+            loadFileContent(path, reader);
+        });
+    }
+
+    // Load file content
+    async function loadFileContent(path, reader) {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/files/info?path=${encodeURIComponent(path)}`);
+            if (!response.ok) throw new Error('Failed to load file');
+            
+            const fileInfo = await response.json();
+            const contentDiv = reader.querySelector('.window-manager-content');
+            
+            if (fileInfo.preview_type === 'image') {
+                // For images, create a container that centers and scales the image
+                contentDiv.innerHTML = `
+                    <div class="image-container" style="
+                        display: flex;
+                        justify-content: center;
+                        align-items: center;
+                        height: 100%;
+                        width: 100%;
+                        overflow: auto;
+                    ">
+                        <img src="user_data/${fileInfo.preview}" 
+                             alt="${fileInfo.name}"
+                             style="
+                                max-width: 100%;
+                                max-height: 100%;
+                                object-fit: contain;
+                             ">
+                    </div>
+                `;
+            } else if (fileInfo.preview) {
+                contentDiv.innerHTML = fileInfo.preview;
+            } else {
+                contentDiv.innerHTML = '<div class="error">Unable to preview this file type</div>';
+            }
+        } catch (error) {
+            console.error('Error loading file:', error);
+            const contentDiv = reader.querySelector('.window-manager-content');
+            contentDiv.innerHTML = `<div class="error">Error loading file: ${error.message}</div>`;
+        }
+    }
+
+    // Model Configuration
+    async function fetchModels() {
+        if (cachedModels) {
+            return cachedModels;
+        }
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/models`);
+            const data = await response.json();
+            cachedModels = data.models || [];
+            return cachedModels;
+        } catch (error) {
+            console.error('Error fetching models:', error);
+            return [];
+        }
+    }
+
+    async function getCurrentModel() {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/model`);
+            const data = await response.json();
+            // Save to localStorage
+            localStorage.setItem('currentModel', JSON.stringify(data));
+            return data;
+        } catch (error) {
+            console.error('Error fetching current model:', error);
+            // Try to get from localStorage if API fails
+            const savedModel = localStorage.getItem('currentModel');
+            return savedModel ? JSON.parse(savedModel) : null;
+        }
+    }
+
+    async function getContextLength() {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/context_length`);
+            const data = await response.json();
+            // Save to localStorage
+            localStorage.setItem('contextLength', data.context_length);
+            return data.context_length;
+        } catch (error) {
+            console.error('Error fetching context length:', error);
+            // Try to get from localStorage if API fails
+            const savedLength = localStorage.getItem('contextLength');
+            return savedLength ? parseInt(savedLength) : null;
+        }
+    }
+
+    async function setContextLength(length) {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/context_length`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ context_length: length })
+            });
+            const data = await response.json();
+            if (data.success) {
+                // Save to localStorage
+                localStorage.setItem('contextLength', length);
+                showNotification(`Context length updated to ${length} tokens`, 3000);
+            } else {
+                showNotification(`Failed to update context length: ${data.error}`, 3000, true);
+            }
+            return data;
+        } catch (error) {
+            console.error('Error setting context length:', error);
+            showNotification('Failed to update context length', 3000, true);
+            return null;
+        }
+    }
+
+    async function switchModel(model, baseUrl, apiKey) {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/switch_model`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    model,
+                    base_url: baseUrl,
+                    api_key: apiKey
+                })
+            });
+            const data = await response.json();
+            if (data.success) {
+                // Save to localStorage
+                localStorage.setItem('modelSettings', JSON.stringify({
+                    model,
+                    baseUrl,
+                    apiKey
+                }));
+                showNotification(`Switched to model: ${model}`, 3000);
+                // Clear the model cache when switching models
+                cachedModels = null;
+            } else {
+                showNotification(`Failed to switch model: ${data.error}`, 3000, true);
+            }
+            return data;
+        } catch (error) {
+            console.error('Error switching model:', error);
+            showNotification('Failed to switch model', 3000, true);
+            return null;
+        }
+    }
+
+    function createModelConfigWindow() {
+        const content = `
+            <div class="model-config-form">
+                <div class="form-group">
+                    <label for="model-select">Select Model:</label>
+                    <select id="model-select" class="form-control">
+                        <option value="">Loading models...</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="context-length">Context Length (tokens):</label>
+                    <input type="number" id="context-length" class="form-control" min="1" step="1">
+                </div>
+                <div class="form-divider"></div>
+                <div class="form-group">
+                    <label for="base-url">Base URL (optional):</label>
+                    <input type="text" id="base-url" class="form-control" placeholder="https://api.example.com">
+                </div>
+                <div class="form-group">
+                    <label for="api-key">API Key (optional):</label>
+                    <input type="password" id="api-key" class="form-control" placeholder="Enter your API key">
+                </div>
+                <div class="form-actions">
+                    <button id="save-model-config" class="button">Save Configuration</button>
+                </div>
+            </div>
+        `;
+
+        const configWindow = window.windowManager.createWindow({
+            title: 'Model Configuration',
+            content: content,
+            width: 500,
+            height: 500,
+            minWidth: 400,
+            minHeight: 400,
+            resizable: true,
+            maximizable: true,
+            minimizable: true,
+            onClose: () => {
+                // Clean up any event listeners or state
+                const saveButton = configWindow.querySelector('#save-model-config');
+                if (saveButton) {
+                    saveButton.removeEventListener('click', saveConfig);
+                }
+            }
+        });
+
+        // Initialize the form
+        const modelSelect = configWindow.querySelector('#model-select');
+        const contextLengthInput = configWindow.querySelector('#context-length');
+        const baseUrlInput = configWindow.querySelector('#base-url');
+        const apiKeyInput = configWindow.querySelector('#api-key');
+        const saveButton = configWindow.querySelector('#save-model-config');
+
+        // Load saved settings from localStorage
+        const savedSettings = localStorage.getItem('modelSettings');
+        const savedContextLength = localStorage.getItem('contextLength');
+        const savedModel = localStorage.getItem('currentModel');
+
+        // Load available models and set current model
+        fetchModels().then(models => {
+            modelSelect.innerHTML = '';
+            let currentModelName = '';
+            
+            // Try to get current model from saved settings first
+            if (savedSettings) {
+                const { model } = JSON.parse(savedSettings);
+                currentModelName = model;
+            } else if (savedModel) {
+                const { provider, model } = JSON.parse(savedModel);
+                currentModelName = `${provider}:${model}`;
+            }
+            
+            models.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model;
+                option.textContent = model;
+                if (model === currentModelName) {
+                    option.selected = true;
+                }
+                modelSelect.appendChild(option);
+            });
+        });
+
+        // Set saved values in the form
+        if (savedSettings) {
+            const { baseUrl, apiKey } = JSON.parse(savedSettings);
+            baseUrlInput.value = baseUrl || '';
+            apiKeyInput.value = apiKey || '';
+        }
+
+        if (savedContextLength) {
+            contextLengthInput.value = savedContextLength;
+        }
+
+        // Save configuration
+        const saveConfig = async () => {
+            const model = modelSelect.value;
+            const contextLength = parseInt(contextLengthInput.value);
+            const baseUrl = baseUrlInput.value;
+            const apiKey = apiKeyInput.value;
+
+            if (!model) {
+                showNotification('Please select a model', 3000, true);
+                return;
+            }
+
+            if (!contextLength || contextLength < 1) {
+                showNotification('Please enter a valid context length', 3000, true);
+                return;
+            }
+
+            try {
+                await Promise.all([
+                    switchModel(model, baseUrl, apiKey),
+                    setContextLength(contextLength)
+                ]);
+                window.windowManager.closeWindow(configWindow);
+            } catch (error) {
+                console.error('Error saving configuration:', error);
+                showNotification('Failed to save configuration', 3000, true);
+            }
+        };
+
+        saveButton.addEventListener('click', saveConfig);
+
+        return configWindow;
+    }
+
+    // Add click handler for config button
+    configButton.addEventListener('click', () => {
+        createModelConfigWindow();
+    });
+
+    // Initialize model settings from localStorage on page load
+    document.addEventListener('DOMContentLoaded', async () => {
+        // Load saved model settings
+        const savedSettings = localStorage.getItem('modelSettings');
+        if (savedSettings) {
+            const { model, baseUrl, apiKey } = JSON.parse(savedSettings);
+            try {
+                await switchModel(model, baseUrl, apiKey);
+            } catch (error) {
+                console.error('Error applying saved model settings:', error);
+            }
+        }
+
+        // Load saved context length
+        const savedContextLength = localStorage.getItem('contextLength');
+        if (savedContextLength) {
+            try {
+                await setContextLength(parseInt(savedContextLength));
+            } catch (error) {
+                console.error('Error applying saved context length:', error);
+            }
+        }
+
+        // Initialize other app components
+        initTextarea();
+        initializeFeatures();
+        initResizableColumns();
+        initPreviewResize();
+        initializeFileUpload();
+    });
+
+    // Make showNotification globally available
+    window.showNotification = showNotification;
 }); 

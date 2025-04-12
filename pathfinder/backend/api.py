@@ -6,7 +6,7 @@
 # Description: RESTful API interface for the Interactor class
 #              Exposes AI interaction functionality for web applications
 # Created: 2025-04-07 10:00:00
-# Modified: 2025-04-10 15:45:55
+# Modified: 2025-04-12 17:21:15
 
 import os
 import json
@@ -25,12 +25,22 @@ from .tools import (
         get_weather,
         get_website
     )
+from .transcripts import TranscriptManager
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})
+
+# Configure CORS with more specific settings
+CORS(app, 
+     resources={r"/api/*": {"origins": ["http://localhost:8000", "http://127.0.0.1:8000"]}},
+     supports_credentials=True,
+     allow_headers=["Content-Type", "Authorization", "Accept"],
+     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 
 # Global interactor instance
 interactor = None
+
+# Initialize transcript manager
+transcript_manager = None
 
 # Configure upload settings
 UPLOAD_FOLDER = os.path.join('frontend', 'user_data')
@@ -56,22 +66,32 @@ def get_interactor() -> Interactor:
         interactor.add_function(get_website, name="get_website", description="Get the content of a specific website")
     return interactor
 
+def get_transcript_manager() -> TranscriptManager:
+    """Get or initialize the global transcript manager instance.
+    
+    Returns:
+        TranscriptManager: The global transcript manager instance
+    """
+    global transcript_manager
+    if transcript_manager is None:
+        transcript_manager = TranscriptManager()
+    return transcript_manager
 
 @app.route('/api/interact', methods=['POST'])
 def api_interact():
     """Interact with the AI model and get a response.
     
     Request JSON parameters:
-        message (str): The user's input message
+        message (str): The user message to send to the AI.
         attachments (list, optional): List of extracted text from attachments
-        stream (bool, optional): Whether to stream the response (default: True)
-        tools (bool, optional): Whether to enable tool calling (default: True)
-        model (str, optional): Model to use for this interaction
-        markdown (bool, optional): Whether to render markdown (default: False)
-    
+        model (str, optional): The model to use for this interaction. If not provided, uses the current model.
+        stream (bool, optional): Whether to stream the response. Default is True.
+        tools (bool, optional): Whether to enable tool calling for this interaction. Default is True.
+        transcript_id (str, optional): ID of the transcript to associate with this interaction.
+        
     Returns:
-        If streaming is enabled: A streaming response with chunks of the AI's response
-        If streaming is disabled: A JSON response with the AI's complete response
+        If streaming is enabled: a streaming response with response chunks.
+        Otherwise: a JSON response with the complete response.
     """
     data = request.json
     user_input = data.get('message', '')
@@ -79,8 +99,8 @@ def api_interact():
     stream_enabled = data.get('stream', True)
     tools_enabled = data.get('tools', True)
     model = data.get('model')
-    markdown = data.get('markdown', False)
-    
+    transcript_id = data.get('transcript_id')
+
     # Combine user input with attachment content
     full_message = user_input
     
@@ -93,6 +113,27 @@ def api_interact():
         return jsonify({"error": "No message or attachments provided"}), 400
     
     ai = get_interactor()
+    
+    # If a transcript ID is provided but not loaded in the interactor,
+    # try to load it now to ensure continuity
+    if transcript_id:
+        try:
+            # Check if the interactor already has a conversation history for this transcript
+            # If not, load it from the database
+            message_count = len(ai.messages_get())
+            if message_count <= 1:  # Only system message or empty
+                manager = get_transcript_manager()
+                transcript = manager.get_transcript(transcript_id)
+                
+                if transcript:
+                    # Explicitly call load_transcript endpoint functionality
+                    load_transcript(transcript_id)
+                    print(f"Loaded transcript {transcript_id} with {len(transcript['messages'])} messages")
+        except Exception as e:
+            print(f"Warning: Failed to load transcript {transcript_id}: {str(e)}")
+    
+    # Capture the response timestamp for storing with the message
+    response_timestamp = int(time.time() * 1000)
     
     if stream_enabled:
         def generate():
@@ -108,8 +149,7 @@ def api_interact():
                         output_callback=stream_callback, 
                         stream=True, 
                         tools=tools_enabled,
-                        model=model,
-                        markdown=markdown
+                        model=model
                     )
                 finally:
                     q.put(None)  # Signal end of stream
@@ -127,15 +167,47 @@ def api_interact():
         
         return Response(stream_with_context(generate()), content_type="text/plain")
     else:
-        response = ai.interact(
-            full_message, 
-            stream=False, 
-            tools=tools_enabled,
-            model=model,
-            markdown=markdown,
-            quiet=True
-        )
-        return jsonify({"response": response})
+        try:
+            response = ai.interact(
+                full_message, 
+                quiet=True,
+                tools=tools_enabled,
+                stream=False,
+                model=model
+            )
+            
+            # If transcript_id exists, save the response to the transcript
+            if transcript_id:
+                try:
+                    manager = get_transcript_manager()
+                    transcript = manager.get_transcript(transcript_id)
+                    
+                    if transcript:
+                        # Add the new messages to the transcript
+                        messages = transcript['messages']
+                        
+                        # Add user message
+                        messages.append({
+                            "role": "user",
+                            "content": full_message,
+                            "timestamp": int(time.time() * 1000)
+                        })
+                        
+                        # Add assistant response
+                        messages.append({
+                            "role": "assistant",
+                            "content": response,
+                            "timestamp": response_timestamp
+                        })
+                        
+                        # Update the transcript with the new messages
+                        manager.update_transcript(transcript_id, {"messages": messages})
+                except Exception as e:
+                    print(f"Warning: Failed to save message to transcript {transcript_id}: {str(e)}")
+            
+            return jsonify({"response": response})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
 
 
 @app.route('/api/models', methods=['GET'])
@@ -278,10 +350,28 @@ def add_message():
     if not role or not content:
         return jsonify({"error": "Role and content are required"}), 400
     
-    ai = get_interactor()
-    messages = ai.messages_add(role, content)
+    # Add timestamp to the message for storage, but not for the interactor
+    timestamp = data.get('timestamp') or int(time.time() * 1000)  # Use provided timestamp or current time in milliseconds
     
-    return jsonify({"messages": messages})
+    # Add the message to the interactor without timestamp
+    ai = get_interactor()
+    messages = ai.messages_add(role, content)  # The interactor doesn't store our timestamp
+    
+    # Return the messages with timestamps added
+    messages_with_timestamps = []
+    for msg in messages:
+        msg_copy = msg.copy()  # Create a copy to avoid modifying the original
+        
+        # Use existing timestamp if this message is the one we just added
+        if msg['role'] == role and msg['content'] == content:
+            msg_copy['timestamp'] = timestamp
+        # Otherwise, use a default timestamp if none exists
+        elif 'timestamp' not in msg_copy:
+            msg_copy['timestamp'] = int(time.time() * 1000)
+            
+        messages_with_timestamps.append(msg_copy)
+    
+    return jsonify({"messages": messages_with_timestamps})
 
 
 @app.route('/api/model', methods=['GET'])
@@ -864,6 +954,300 @@ def copy_user_file():
         
     except Exception as e:
         return jsonify({"error": f"Copy operation failed: {str(e)}"}), 500
+
+
+@app.route('/api/reset', methods=['POST'])
+def reset_interactor():
+    """Reset the Interactor class with optional new settings.
+    
+    Request JSON parameters:
+        model (str, optional): Model identifier in format "provider:model_name"
+        base_url (str, optional): Base URL for the API
+        api_key (str, optional): API key for the provider
+        context_length (int, optional): New context length in tokens
+    
+    Returns:
+        JSON response indicating success and new settings
+    """
+    data = request.json
+    model = data.get('model')
+    base_url = data.get('base_url')
+    api_key = data.get('api_key')
+    context_length = data.get('context_length')
+    
+    global interactor
+    
+    # Close existing interactor if it exists
+    if interactor is not None:
+        try:
+            interactor.close()
+        except Exception as e:
+            print(f"Warning: Error closing existing interactor: {e}")
+    
+    # Reset to None to force new creation
+    interactor = None
+    
+    # Get new interactor instance
+    ai = get_interactor()
+    
+    # Apply new settings if provided
+    if model or base_url or api_key:
+        try:
+            ai._setup_client(model, base_url, api_key)
+            ai._setup_encoding()
+        except Exception as e:
+            return jsonify({"error": f"Failed to apply new settings: {str(e)}"}), 500
+    
+    if context_length is not None:
+        try:
+            ai.context_length = context_length
+        except Exception as e:
+            return jsonify({"error": f"Failed to set context length: {str(e)}"}), 500
+    
+    return jsonify({
+        "success": True,
+        "message": "Interactor reset successfully",
+        "settings": {
+            "provider": ai.provider,
+            "model": ai.model,
+            "context_length": ai.context_length,
+            "tools_supported": ai.tools_supported
+        }
+    })
+
+
+@app.route('/api/transcripts', methods=['GET'])
+def get_transcripts():
+    """Get all transcripts.
+    
+    Query parameters:
+        search (str, optional): Search query to filter transcripts
+    
+    Returns:
+        JSON response with list of transcripts
+    """
+    search_query = request.args.get('search', '')
+    
+    manager = get_transcript_manager()
+    
+    if search_query:
+        transcripts = manager.search_transcripts(search_query)
+    else:
+        transcripts = manager.get_all_transcripts()
+    
+    return jsonify({"transcripts": transcripts})
+
+
+@app.route('/api/transcripts/<transcript_id>', methods=['GET'])
+def get_transcript(transcript_id):
+    """Get a specific transcript by ID.
+    
+    Returns:
+        JSON response with the transcript data
+    """
+    manager = get_transcript_manager()
+    transcript = manager.get_transcript(transcript_id)
+    
+    if not transcript:
+        return jsonify({"error": "Transcript not found"}), 404
+    
+    return jsonify({"transcript": transcript})
+
+
+@app.route('/api/transcripts', methods=['POST'])
+def create_transcript():
+    """Create a new transcript.
+    
+    Request JSON parameters:
+        name (str): Name of the transcript
+        messages (list, optional): Initial messages for the transcript
+    
+    Returns:
+        JSON response with the created transcript
+    """
+    data = request.json
+    name = data.get('name')
+    messages = data.get('messages', [])
+    
+    if not name:
+        return jsonify({"error": "Transcript name is required"}), 400
+    
+    # Ensure each message has a timestamp
+    current_time = int(time.time() * 1000)
+    for message in messages:
+        if 'timestamp' not in message:
+            message['timestamp'] = current_time
+    
+    manager = get_transcript_manager()
+    transcript = manager.create_transcript(name, messages)
+    
+    return jsonify({"transcript": transcript}), 201
+
+
+@app.route('/api/transcripts/<transcript_id>', methods=['PUT'])
+def update_transcript(transcript_id):
+    """Update a transcript.
+    
+    Request JSON parameters:
+        name (str, optional): New name for the transcript
+        messages (list, optional): Updated messages for the transcript
+    
+    Returns:
+        JSON response with the updated transcript
+    """
+    data = request.json
+    updates = {}
+    
+    if 'name' in data:
+        updates['name'] = data['name']
+    
+    if 'messages' in data:
+        messages = data['messages']
+        # Ensure each message has a timestamp
+        current_time = int(time.time() * 1000)
+        for message in messages:
+            if 'timestamp' not in message:
+                message['timestamp'] = current_time
+        updates['messages'] = messages
+    
+    manager = get_transcript_manager()
+    transcript = manager.update_transcript(transcript_id, updates)
+    
+    if not transcript:
+        return jsonify({"error": "Transcript not found"}), 404
+    
+    return jsonify({"transcript": transcript})
+
+
+@app.route('/api/transcripts/<transcript_id>', methods=['DELETE'])
+def delete_transcript(transcript_id):
+    """Delete a transcript.
+    
+    Returns:
+        JSON response indicating success or failure
+    """
+    manager = get_transcript_manager()
+    success = manager.delete_transcript(transcript_id)
+    
+    if not success:
+        return jsonify({"error": "Transcript not found"}), 404
+    
+    
+    return jsonify({"success": True, "message": "Transcript deleted successfully"})
+
+
+@app.route('/api/transcripts/import', methods=['POST'])
+def import_transcript():
+    """Import a transcript from JSON data.
+    
+    Request JSON parameters:
+        transcript (dict): The transcript data to import
+    
+    Returns:
+        JSON response with the imported transcript
+    """
+    data = request.json
+    transcript_data = data.get('transcript')
+    
+    if not transcript_data:
+        return jsonify({"error": "No transcript data provided"}), 400
+    
+    try:
+        manager = get_transcript_manager()
+        transcript = manager.import_transcript(transcript_data)
+        return jsonify({"transcript": transcript}), 201
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route('/api/transcripts/<transcript_id>/touch', methods=['POST'])
+def touch_transcript(transcript_id):
+    """Update the last_modified timestamp of a transcript to mark it as recently accessed.
+    
+    Returns:
+        JSON response indicating success or failure
+    """
+    manager = get_transcript_manager()
+    transcript = manager.touch_transcript(transcript_id)
+    
+    if not transcript:
+        return jsonify({"error": "Transcript not found"}), 404
+    
+    return jsonify({"success": True, "transcript": transcript})
+
+
+@app.route('/api/transcripts/<transcript_id>/load', methods=['POST'])
+def load_transcript(transcript_id):
+    """Load a transcript into the current chat session.
+    
+    Returns:
+        JSON response with the transcript data and updates the Interactor's message history
+    """
+    manager = get_transcript_manager()
+    transcript = manager.get_transcript(transcript_id)
+    
+    if not transcript:
+        return jsonify({"error": "Transcript not found"}), 404
+    
+    try:
+        # Get the interactor and update its messages with the transcript's messages
+        ai = get_interactor()
+        
+        # Clear existing messages but keep system prompt
+        ai.messages_flush()  
+        
+        # Add each message from the transcript to the interactor
+        for message in transcript['messages']:
+            if message['role'] != 'system':  # Skip system messages as they're preserved by messages_flush
+                # Handle different message formats (tool calls vs regular messages)
+                if message.get('tool_calls'):
+                    # This is an assistant message with tool calls
+                    ai.history.append({
+                        'role': message['role'],
+                        'content': message.get('content'),
+                        'tool_calls': message['tool_calls']
+                    })
+                elif message.get('tool_call_id'):
+                    # This is a tool response message
+                    ai.history.append({
+                        'role': 'tool',
+                        'content': message['content'],
+                        'tool_call_id': message['tool_call_id']
+                    })
+                else:
+                    # Regular user or assistant message
+                    ai.messages_add(message['role'], message['content'])
+        
+        # Return the transcript data directly
+        return jsonify({
+            "success": True,
+            "name": transcript['name'],
+            "messages": transcript['messages']
+        })
+    except Exception as e:
+        print(f"Error loading transcript: {str(e)}")
+        return jsonify({"error": f"Failed to load transcript: {str(e)}"}), 500
+
+
+@app.route('/api/transcripts/<transcript_id>/view', methods=['GET'])
+def view_transcript(transcript_id):
+    """Get a transcript for viewing purposes without affecting the active chat session.
+    
+    Returns:
+        JSON response with the transcript data
+    """
+    manager = get_transcript_manager()
+    transcript = manager.get_transcript(transcript_id)
+    
+    if not transcript:
+        return jsonify({"error": "Transcript not found"}), 404
+    
+    # Return the transcript data directly without affecting the active session
+    return jsonify({
+        "success": True,
+        "name": transcript['name'],
+        "messages": transcript['messages']
+    })
 
 
 def create_app(test_config=None):

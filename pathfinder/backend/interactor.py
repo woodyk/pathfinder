@@ -7,7 +7,7 @@
 #              with streaming, tool calling,
 #              and dynamic model switching
 # Created: 2025-03-14 12:22:57
-# Modified: 2025-04-06 23:30:32
+# Modified: 2025-04-11 18:36:04
 
 import os
 import re
@@ -66,10 +66,12 @@ class Interactor:
                 "base_url": "http://localhost:11434/v1",
                 "api_key": api_key or "ollama"
             },
+            """
             "nvidia": {
                 "base_url": "https://integrate.api.nvidia.com/v1",
                 "api_key": api_key or os.getenv("NVIDIA_API_KEY") or None
             },
+            """
             "anthropic": {
                 "base_url": "https://api.anthropic.com/v1",
                 "api_key": api_key or os.getenv("ANTHROPIC_API_KEY") or None
