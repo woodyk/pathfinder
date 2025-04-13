@@ -581,7 +581,7 @@ def list_files():
         return jsonify({"error": f"Failed to list files: {str(e)}"}), 500
 
 
-@app.route('/api/files/delete', methods=['POST'])
+@app.route('/api/files/delete', methods=['POST', 'OPTIONS'])
 def delete_user_file():
     """Delete a file or directory from the user_data directory.
     
@@ -592,6 +592,9 @@ def delete_user_file():
     Returns:
         JSON response indicating success or failure
     """
+    if request.method == 'OPTIONS':
+        return '', 200
+    
     data = request.json
     relative_path = data.get('path')
     is_directory = data.get('is_directory', False)
@@ -821,18 +824,13 @@ def get_file_info():
             else:
                 try:
                     with open(full_path, 'r', encoding='utf-8') as f:
-                        lines = []
-                        for i, line in enumerate(f):
-                            if i >= 1000:  # Limit to 1000 lines
-                                break
-                            lines.append(line.rstrip('\n'))
-                        info["preview"] = '\n'.join(lines)
+                        info["preview"] = f.read()
                         info["preview_type"] = "text"
                 except UnicodeDecodeError:
                     try:
                         extracted_text = extract_text(full_path)
                         if extracted_text:
-                            info["preview"] = extracted_text[:10000]  # Limit to 10000 characters
+                            info["preview"] = extracted_text
                             info["preview_type"] = "text"
                     except Exception:
                         info["preview_type"] = "none"

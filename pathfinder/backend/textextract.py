@@ -158,18 +158,8 @@ def extract_text(file_path):
     try:
         content = "" 
         if mime_type.startswith('text/') or mime_type in ['application/json', 'application/xml', 'application/x-yaml', 'text/markdown']:
-            # For preview purposes, limit to first 1000 lines
-            max_lines = 1000
             with open(file_path, 'r') as f:
-                lines = []
-                for i, line in enumerate(f):
-                    if i >= max_lines:
-                        break
-                    lines.append(line)
-                content = ''.join(lines)
-                # If file has more lines, add a message
-                if i >= max_lines:
-                    content += f"\n\n[Preview truncated. Showing first {max_lines} lines of {i+1} total lines.]"
+                content = f.read()
 
         elif mime_type in ['application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']:
             content = text_from_excel(file_path)

@@ -21,6 +21,7 @@ class ChatInterface {
         this.useLocalStorage = false;
         this.hasActivity = false; // Track if there's been any chat activity
         this.hasBeenRenamed = false; // Track if the session has been renamed
+        this.isWaitingForResponse = false; // Add flag to track response state
         
         // Add transcript name display in header
         const chatHeader = document.querySelector('.ai-chat .pane-header h2');
@@ -154,6 +155,93 @@ class ChatInterface {
                 loadingDiv.parentNode.removeChild(loadingDiv);
             }
         };
+
+        // Add scroll-to-bottom button
+        this.scrollToBottomButton = document.createElement('button');
+        this.scrollToBottomButton.className = 'scroll-to-bottom';
+        this.scrollToBottomButton.innerHTML = `
+            <svg viewBox="0 0 24 24">
+                <path d="M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z"/>
+            </svg>
+        `;
+        // Append to chat area instead of document.body for proper positioning
+        this.chatArea = document.querySelector('.ai-chat');
+        this.chatArea.appendChild(this.scrollToBottomButton);
+        
+        // Initialize scroll handling
+        this.initScrollHandling();
+    }
+    
+    initScrollHandling() {
+        let scrollTimeout;
+        let lastScrollTop = 0;
+        let isScrolling = false;
+
+        // Handle scroll events
+        this.messagesContainer.addEventListener('scroll', () => {
+            // Show scrollbar
+            this.messagesContainer.style.setProperty('--scrollbar-opacity', '1');
+            
+            // Clear previous timeout
+            clearTimeout(scrollTimeout);
+            
+            // Set new timeout to hide scrollbar
+            scrollTimeout = setTimeout(() => {
+                this.messagesContainer.style.setProperty('--scrollbar-opacity', '0');
+            }, 10000); // 10 second timeout
+            
+            // Check if we're near the bottom
+            const isNearBottom = this.messagesContainer.scrollHeight - this.messagesContainer.scrollTop <= this.messagesContainer.clientHeight + 100;
+            
+            // Show/hide scroll-to-bottom button
+            this.scrollToBottomButton.classList.toggle('visible', !isNearBottom);
+            
+            // Update last scroll position
+            lastScrollTop = this.messagesContainer.scrollTop;
+        });
+
+        // Handle scroll-to-bottom button click
+        this.scrollToBottomButton.addEventListener('click', () => {
+            this.smoothScrollToBottom();
+        });
+
+        // Listen for resize events on the pane resize handles
+        const resizeObserver = new ResizeObserver(() => {
+            // Update the button position when the chat pane is resized
+            this.updateScrollButtonPosition();
+        });
+        
+        // Observe the chat area for size changes
+        resizeObserver.observe(this.chatArea);
+    }
+    
+    // Add new method to update scroll button position
+    updateScrollButtonPosition() {
+        // Nothing to do here - the CSS will handle the positioning
+        // This method exists in case we need to add more complex repositioning logic in the future
+    }
+
+    smoothScrollToBottom() {
+        const start = this.messagesContainer.scrollTop;
+        const end = this.messagesContainer.scrollHeight - this.messagesContainer.clientHeight;
+        const duration = 300; // ms
+        const startTime = performance.now();
+
+        const animateScroll = (currentTime) => {
+            const elapsed = currentTime - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            
+            // Ease in-out function
+            const ease = (t) => t<.5 ? 2*t*t : -1+(4-2*t)*t;
+            
+            this.messagesContainer.scrollTop = start + (end - start) * ease(progress);
+            
+            if (progress < 1) {
+                requestAnimationFrame(animateScroll);
+            }
+        };
+
+        requestAnimationFrame(animateScroll);
     }
     
     bindEvents() {
@@ -263,9 +351,16 @@ class ChatInterface {
     }
 
     async handleSendMessage() {
+        // Don't allow sending if we're already waiting for a response
+        if (this.isWaitingForResponse) return;
+
         const textarea = document.querySelector('.chat-input textarea');
         const userInput = textarea.value.trim();
         if (!userInput) return;
+
+        // Set waiting flag and disable only the send button
+        this.isWaitingForResponse = true;
+        document.getElementById('send-button').disabled = true;
 
         // Clear input
         textarea.value = '';
@@ -304,6 +399,8 @@ class ChatInterface {
         
         // Add message to the UI
         this.messagesContainer.appendChild(assistantMessage);
+        
+        // Ensure the loading message is visible by scrolling to bottom
         this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
         
         // Prepare content div for streaming
@@ -377,6 +474,10 @@ class ChatInterface {
                         timestampDiv.textContent = date.toLocaleTimeString();
                         wrapperDiv.appendChild(timestampDiv);
                     }
+
+                    // Re-enable send button after response is complete
+                    this.isWaitingForResponse = false;
+                    document.getElementById('send-button').disabled = false;
                     
                     break;
                 }
@@ -392,14 +493,18 @@ class ChatInterface {
                                 // Update loading text to show tool name
                                 const loadingText = loadingDiv.querySelector('.loading-text');
                                 if (loadingText) {
-                                    loadingText.textContent = toolCallData.tool_name;
+                                    loadingText.textContent = `Running ${toolCallData.tool_name}...`;
                                 }
+                                // Ensure the tool call message is visible
+                                this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
                             } else if (toolCallData.status === 'completed') {
                                 // Reset loading text
                                 const loadingText = loadingDiv.querySelector('.loading-text');
                                 if (loadingText) {
                                     loadingText.textContent = 'Thinking';
                                 }
+                                // Ensure the message is still visible
+                                this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
                             }
                             continue; // Skip adding this chunk to accumulatedText
                         }
@@ -443,7 +548,7 @@ class ChatInterface {
                     contentDiv.innerHTML = `<p>${accumulatedText}</p>`;
                 }
                 
-                // Scroll to bottom
+                // Scroll to bottom after each update
                 this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
             }
         } catch (error) {
@@ -459,6 +564,9 @@ class ChatInterface {
                 wrapperDiv.removeChild(loadingDiv);
             }
             wrapperDiv.appendChild(errorDiv);
+            
+            // Ensure error message is visible
+            this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
         }
     }
     
@@ -806,9 +914,9 @@ class ChatInterface {
         // Add to messages container
         messagesContainer.appendChild(messageElement);
         
-        // Scroll to the bottom
-        messagesContainer.scrollTop = messagesContainer.scrollHeight;
-         
+        // Scroll to the bottom smoothly
+        this.smoothScrollToBottom();
+        
         // Add to message history with timestamp
         this.messages.push({ 
             role, 
@@ -1259,9 +1367,19 @@ document.addEventListener('DOMContentLoaded', () => {
         return date.toLocaleString();
     }
 
+    // Add preview cache object
+    const previewCache = new Map();
+
     // Update preview panel
     async function updatePreview(path) {
         const previewPanel = document.getElementById('preview-panel');
+        
+        // Check if preview is already cached
+        if (previewCache.has(path)) {
+            previewPanel.innerHTML = previewCache.get(path);
+            previewPanel.classList.remove('loading');
+            return;
+        }
         
         // Show loading state
         previewPanel.innerHTML = `
@@ -1283,7 +1401,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const fileInfo = await response.json();
             
             let html = `
-                <div class="preview-header">${fileInfo.name}</div>
+                <div class="preview-header" data-path="${path}">${fileInfo.name}</div>
                 <div class="meta-item">
                     <span class="meta-label">Type:</span>
                     <span class="meta-value">${fileInfo.type}</span>
@@ -1308,27 +1426,34 @@ document.addEventListener('DOMContentLoaded', () => {
             if (isImage) {
                 // For images, create an img element that scales to fit the preview panel
                 html += `
-                    <div class="preview-header">Preview</div>
                     <div class="preview-content">
-                        <img src="user_data/${path}" 
-                             alt="${fileInfo.name}"
-                             style="max-width: 100%; max-height: 300px; object-fit: contain;">
+                        <div style="display: flex; justify-content: center; align-items: center; height: 100%;">
+                            <img src="user_data/${path}" 
+                                 alt="${fileInfo.name}"
+                                 style="max-width: 100%; max-height: 100%; object-fit: contain;">
+                        </div>
                     </div>
                 `;
             } else if (fileInfo.preview) {
                 html += `
-                    <div class="preview-header">Preview</div>
-                    <div class="preview-content" style="max-height: 400px; overflow-y: auto; white-space: pre-wrap; font-family: monospace; padding: 10px; background: #f5f5f5; border-radius: 4px;">
-                        ${fileInfo.preview}
+                    <div class="preview-content">
+                        <div style="max-height: 400px; overflow-y: auto; white-space: pre-wrap; font-family: monospace; padding: 10px; background: #f5f5f5; border-radius: 4px;">
+                            ${fileInfo.preview}
+                        </div>
                     </div>
                 `;
             }
 
+            // Cache the preview HTML
+            previewCache.set(path, html);
+            
+            // Update the preview panel
             previewPanel.innerHTML = html;
             previewPanel.classList.remove('loading');
+            
         } catch (error) {
-            console.error('Error getting file info:', error);
-            previewPanel.innerHTML = '<div class="preview-header">Error loading preview</div>';
+            console.error('Error updating preview:', error);
+            previewPanel.innerHTML = `<div class="error-message">Error loading preview: ${error.message}</div>`;
             previewPanel.classList.remove('loading');
         }
     }
@@ -2091,6 +2216,12 @@ document.addEventListener('DOMContentLoaded', () => {
         // Handle double-click for files
         if (e.detail === 2 && !item.classList.contains('directory')) {
             const path = item.dataset.path;
+            // Check if file is already attached
+            const isAlreadyAttached = window.pendingAttachments.some(att => att.filename === path.split('/').pop());
+            if (isAlreadyAttached) {
+                showNotification(`File ${path.split('/').pop()} is already attached`, 2000);
+                return;
+            }
             // Get file content and add to pending attachments
             fetch(`${API_BASE_URL}/api/files/info?path=${encodeURIComponent(path)}`)
                 .then(response => {
@@ -2205,23 +2336,30 @@ document.addEventListener('DOMContentLoaded', () => {
             
             if (!confirm(confirmMessage)) return;
             
-            // Show loading dialog
-            //showLoadingModal("Deleting files...");
-            
             // Delete each selected file/folder
             for (const path of fileList) {
-                const response = await fetch(`${API_BASE_URL}/api/files?path=${encodeURIComponent(path)}`, {
-                    method: 'DELETE'
+                const item = document.querySelector(`.file-tree-item[data-path="${path}"]`);
+                const isDirectory = item && item.classList.contains('directory');
+                
+                const response = await fetch(`${API_BASE_URL}/api/files/delete`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        path: path,
+                        is_directory: isDirectory
+                    })
                 });
                 
                 if (!response.ok) {
                     let errorMessage = `Failed to delete ${path}`;
                     try {
                         const data = await response.json();
-                        const text = data.error || data.message;
-                        errorMessage = text || errorMessage;
+                        errorMessage = data.error || errorMessage;
                     } catch {
-                        errorMessage = text || errorMessage;
+                        // If response is not JSON, use the status text
+                        errorMessage = response.statusText || errorMessage;
                     }
                     throw new Error(errorMessage);
                 }
@@ -2361,20 +2499,45 @@ document.addEventListener('DOMContentLoaded', () => {
         let startHeight;
         let startTreeHeight;
         let isMaximized = false;
-        const defaultHeight = 100;
+        const defaultHeight = 120;
         const containerHeight = fileTreeContainer.parentElement.offsetHeight;
         const maxHeight = Math.floor(window.innerHeight / 2);
 
-        // Double click handler
-        resizeHandle.addEventListener('dblclick', () => {
+        // Add click handler for preview header
+        previewPanel.addEventListener('click', (e) => {
+            const header = e.target.closest('.preview-header');
+            if (!header) return;
+            
+            const previewContent = previewPanel.querySelector('.preview-content');
+            
             if (isMaximized) {
                 // Restore to default height
                 previewPanel.style.height = `${defaultHeight}px`;
                 fileTreeContainer.style.height = `${containerHeight - defaultHeight - 4}px`;
+                if (previewContent) previewContent.style.display = 'none';
             } else {
                 // Maximize the preview to half window height
                 previewPanel.style.height = `${maxHeight}px`;
                 fileTreeContainer.style.height = `${containerHeight - maxHeight - 4}px`;
+                if (previewContent) previewContent.style.display = 'block';
+            }
+            isMaximized = !isMaximized;
+        });
+
+        // Double click handler for resize handle
+        resizeHandle.addEventListener('dblclick', () => {
+            const previewContent = previewPanel.querySelector('.preview-content');
+            
+            if (isMaximized) {
+                // Restore to default height
+                previewPanel.style.height = `${defaultHeight}px`;
+                fileTreeContainer.style.height = `${containerHeight - defaultHeight - 4}px`;
+                if (previewContent) previewContent.style.display = 'none';
+            } else {
+                // Maximize the preview to half window height
+                previewPanel.style.height = `${maxHeight}px`;
+                fileTreeContainer.style.height = `${containerHeight - maxHeight - 4}px`;
+                if (previewContent) previewContent.style.display = 'block';
             }
             isMaximized = !isMaximized;
         });
@@ -3026,7 +3189,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (max !== min) {
                 s = l > 0.5 ? (max - min) / (2 - max - min) : (max - min) / (max + min);
             }
-            
+      
             let h = 0;
             if (max !== min) {
                 switch (max) {
@@ -3064,8 +3227,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const hoverColor = hslToHex(h, s, 25);
             const buttonBg = hslToHex(h, s, 22);
             const buttonHoverBg = hslToHex(h, s, 28);
-            const errorHue = (h + 180) % 360;
-            const errorColor = hslToHex(errorHue, 80, 60);
+            
+            // Use fixed red color for error elements
+            const errorColor = '#f85149'; // GitHub's error red
+            const errorHover = '#ff6b6b'; // Slightly lighter red for hover
             
             return {
                 '--bg-primary': bgPrimary,
@@ -3079,6 +3244,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 '--user-message-bg': hoverColor,
                 '--assistant-message-bg': bgSecondary,
                 '--error-color': errorColor,
+                '--error-hover': errorHover,
+                '--error-bg': 'rgba(248, 81, 73, 0.1)',
                 '--button-bg': buttonBg,
                 '--button-hover-bg': buttonHoverBg,
                 '--button-active': primaryColor,
@@ -3099,8 +3266,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const hoverColor = hslToHex(h, s, 95);
             const buttonBg = hslToHex(h, s, 96);
             const buttonHoverBg = hslToHex(h, s, 92);
-            const errorHue = (h + 180) % 360;
-            const errorColor = hslToHex(errorHue, 80, 50);
+            
+            // Use fixed red color for error elements
+            const errorColor = '#cf222e'; // GitHub's error red for light theme
+            const errorHover = '#ff6b6b'; // Slightly lighter red for hover
             
             return {
                 '--bg-primary': bgPrimary,
@@ -3114,6 +3283,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 '--user-message-bg': hoverColor,
                 '--assistant-message-bg': bgSecondary,
                 '--error-color': errorColor,
+                '--error-hover': errorHover,
+                '--error-bg': 'rgba(207, 34, 46, 0.1)',
                 '--button-bg': buttonBg,
                 '--button-hover-bg': buttonHoverBg,
                 '--button-active': primaryColor,
@@ -3189,6 +3360,48 @@ document.addEventListener('DOMContentLoaded', () => {
     // Track all open document readers
     const documentReaders = new Map(); // Changed from Set to Map to track by file path
 
+    async function loadFileContent(path, reader) {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/files/info?path=${encodeURIComponent(path)}`);
+            if (!response.ok) throw new Error('Failed to load file content');
+            
+            const fileInfo = await response.json();
+            const contentDiv = reader.querySelector('.document-reader-content');
+            
+            // Check if it's an image file
+            const isImage = /\.(jpg|jpeg|png|gif|bmp|webp)$/i.test(fileInfo.name);
+            
+            if (isImage) {
+                // For images, create an img element that scales to fit the document viewer
+                contentDiv.innerHTML = `
+                    <div style="display: flex; justify-content: center; align-items: center; height: 100%;">
+                        <img src="user_data/${path}" 
+                             alt="${fileInfo.name}"
+                             style="max-width: 100%; max-height: 100%; object-fit: contain;">
+                    </div>
+                `;
+            } else if (fileInfo.preview_type === 'text' && fileInfo.preview) {
+                // Store the original content for search functionality
+                contentDiv.dataset.originalContent = fileInfo.preview;
+                
+                // Format the content with proper line breaks and whitespace
+                const formattedContent = fileInfo.preview
+                    .replace(/\r\n/g, '\n') // Normalize line endings
+                    .replace(/\n/g, '<br>') // Convert newlines to <br> tags
+                    .replace(/\t/g, '    '); // Convert tabs to spaces
+                
+                // Set the content with proper formatting
+                contentDiv.innerHTML = formattedContent;
+            } else {
+                contentDiv.innerHTML = `<div class="error-message">Cannot display this file type</div>`;
+            }
+        } catch (error) {
+            console.error('Error loading file content:', error);
+            const contentDiv = reader.querySelector('.document-reader-content');
+            contentDiv.innerHTML = `<div class="error-message">Error loading file: ${error.message}</div>`;
+        }
+    }
+
     function createDocumentReader(path) {
         withWindowManager(windowManager => {
             // Check if file is already being viewed
@@ -3204,6 +3417,43 @@ document.addEventListener('DOMContentLoaded', () => {
             contentDiv.className = 'document-reader-content';
             contentDiv.textContent = 'Loading...';
             
+            // Create search bar
+            const searchBar = document.createElement('div');
+            searchBar.className = 'document-reader-search';
+            
+            const searchInput = document.createElement('input');
+            searchInput.type = 'text';
+            searchInput.placeholder = 'Search...';
+            searchInput.spellcheck = false;
+            searchInput.autocomplete = 'off';
+            
+            const searchControls = document.createElement('div');
+            searchControls.className = 'search-controls';
+            
+            const prevButton = document.createElement('button');
+            prevButton.innerHTML = '↑';
+            prevButton.title = 'Previous match (Shift+Enter)';
+            
+            const nextButton = document.createElement('button');
+            nextButton.innerHTML = '↓';
+            nextButton.title = 'Next match (Enter)';
+            
+            const searchCount = document.createElement('span');
+            searchCount.className = 'search-count';
+            
+            const caseSensitiveButton = document.createElement('button');
+            caseSensitiveButton.innerHTML = 'Aa';
+            caseSensitiveButton.title = 'Case sensitive';
+            caseSensitiveButton.className = 'case-sensitive';
+            
+            searchControls.appendChild(caseSensitiveButton);
+            searchControls.appendChild(prevButton);
+            searchControls.appendChild(nextButton);
+            searchControls.appendChild(searchCount);
+            
+            searchBar.appendChild(searchInput);
+            searchBar.appendChild(searchControls);
+            
             // Create the window using the window manager
             const reader = windowManager.createWindow({
                 title: path.split('/').pop(),
@@ -3214,53 +3464,164 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
             
+            // Insert search bar before content
+            const contentContainer = reader.querySelector('.window-manager-content');
+            contentContainer.parentNode.insertBefore(searchBar, contentContainer);
+            
             // Add to tracking map with file path as key
             documentReaders.set(path, reader);
             
             // Load the file content
             loadFileContent(path, reader);
-        });
-    }
-
-    // Load file content
-    async function loadFileContent(path, reader) {
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/files/info?path=${encodeURIComponent(path)}`);
-            if (!response.ok) throw new Error('Failed to load file');
             
-            const fileInfo = await response.json();
-            const contentDiv = reader.querySelector('.window-manager-content');
+            // Add search functionality
+            let currentMatchIndex = -1;
+            let matches = [];
+            let isCaseSensitive = false;
+            let searchTimeout = null;
             
-            if (fileInfo.preview_type === 'image') {
-                // For images, create a container that centers and scales the image
-                contentDiv.innerHTML = `
-                    <div class="image-container" style="
-                        display: flex;
-                        justify-content: center;
-                        align-items: center;
-                        height: 100%;
-                        width: 100%;
-                        overflow: auto;
-                    ">
-                        <img src="user_data/${fileInfo.preview}" 
-                             alt="${fileInfo.name}"
-                             style="
-                                max-width: 100%;
-                                max-height: 100%;
-                                object-fit: contain;
-                             ">
-                    </div>
-                `;
-            } else if (fileInfo.preview) {
-                contentDiv.innerHTML = fileInfo.preview;
-            } else {
-                contentDiv.innerHTML = '<div class="error">Unable to preview this file type</div>';
+            function createRegex(pattern) {
+                try {
+                    const flags = isCaseSensitive ? 'g' : 'gi';
+                    // Convert wildcards to regex pattern
+                    const escapedPattern = pattern
+                        .replace(/[.*+?^${}()|[\]\\]/g, '\\$&') // Escape special regex chars
+                        .replace(/\*/g, '.*') // Convert * to .* for wildcard
+                        .replace(/\?/g, '.'); // Convert ? to . for single char wildcard
+                    return new RegExp(escapedPattern, flags);
+                } catch (e) {
+                    return null;
+                }
             }
-        } catch (error) {
-            console.error('Error loading file:', error);
-            const contentDiv = reader.querySelector('.window-manager-content');
-            contentDiv.innerHTML = `<div class="error">Error loading file: ${error.message}</div>`;
-        }
+            
+            function findMatches() {
+                const searchText = searchInput.value;
+                if (!searchText) {
+                    matches = [];
+                    currentMatchIndex = -1;
+                    searchCount.textContent = '';
+                    return;
+                }
+                
+                const regex = createRegex(searchText);
+                if (!regex) {
+                    searchCount.textContent = 'Invalid regex';
+                    return;
+                }
+                
+                // Get the original text content
+                const originalText = contentDiv.dataset.originalContent || '';
+                
+                // Find all matches in the original text
+                matches = [];
+                let match;
+                while ((match = regex.exec(originalText)) !== null) {
+                    matches.push({
+                        start: match.index,
+                        end: match.index + match[0].length,
+                        text: match[0]
+                    });
+                }
+                
+                // Update count
+                searchCount.textContent = matches.length ? `${currentMatchIndex + 1}/${matches.length}` : '0/0';
+            }
+            
+            function highlightMatches() {
+                // Get the original text content
+                const originalText = contentDiv.dataset.originalContent || '';
+                
+                // Create a temporary container to hold the highlighted content
+                const tempContainer = document.createElement('div');
+                
+                // Process the text in chunks to preserve structure
+                let lastIndex = 0;
+                let offset = 0;
+                
+                // Sort matches by start position to handle overlapping matches
+                const sortedMatches = [...matches].sort((a, b) => a.start - b.start);
+                
+                // Add text chunks and highlights
+                for (const match of sortedMatches) {
+                    // Add text before the match
+                    if (match.start > lastIndex) {
+                        const beforeText = originalText.slice(lastIndex, match.start);
+                        tempContainer.appendChild(document.createTextNode(beforeText));
+                    }
+                    
+                    // Add the highlighted match
+                    const highlight = document.createElement('span');
+                    highlight.className = `search-highlight ${match === matches[currentMatchIndex] ? 'active' : ''}`;
+                    highlight.textContent = match.text;
+                    tempContainer.appendChild(highlight);
+                    
+                    lastIndex = match.end;
+                }
+                
+                // Add remaining text
+                if (lastIndex < originalText.length) {
+                    tempContainer.appendChild(document.createTextNode(originalText.slice(lastIndex)));
+                }
+                
+                // Convert newlines to <br> tags while preserving the structure
+                const finalContent = tempContainer.innerHTML.replace(/\n/g, '<br>');
+                contentDiv.innerHTML = finalContent;
+                
+                // Scroll to active match if exists
+                if (currentMatchIndex >= 0 && currentMatchIndex < matches.length) {
+                    const activeHighlight = contentDiv.querySelector('.search-highlight.active');
+                    if (activeHighlight) {
+                        activeHighlight.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                    }
+                }
+            }
+            
+            function updateSearch() {
+                // Clear previous timeout
+                if (searchTimeout) {
+                    clearTimeout(searchTimeout);
+                }
+                
+                // Debounce search to improve performance
+                searchTimeout = setTimeout(() => {
+                    findMatches();
+                    highlightMatches();
+                }, 100);
+            }
+            
+            function navigateMatch(direction) {
+                if (!matches.length) return;
+                
+                currentMatchIndex = (currentMatchIndex + direction + matches.length) % matches.length;
+                highlightMatches();
+            }
+            
+            // Add event listeners
+            searchInput.addEventListener('input', () => {
+                currentMatchIndex = 0;
+                updateSearch();
+            });
+            
+            searchInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    if (e.shiftKey) {
+                        navigateMatch(-1);
+                    } else {
+                        navigateMatch(1);
+                    }
+                }
+            });
+            
+            prevButton.addEventListener('click', () => navigateMatch(-1));
+            nextButton.addEventListener('click', () => navigateMatch(1));
+            
+            caseSensitiveButton.addEventListener('click', () => {
+                isCaseSensitive = !isCaseSensitive;
+                caseSensitiveButton.classList.toggle('active', isCaseSensitive);
+                currentMatchIndex = 0;
+                updateSearch();
+            });
+        });
     }
 
     // Model Configuration
@@ -3423,23 +3784,18 @@ document.addEventListener('DOMContentLoaded', () => {
         const apiKeyInput = configWindow.querySelector('#api-key');
         const saveButton = configWindow.querySelector('#save-model-config');
 
-        // Load saved settings from localStorage
-        const savedSettings = localStorage.getItem('modelSettings');
-        const savedContextLength = localStorage.getItem('contextLength');
-        const savedModel = localStorage.getItem('currentModel');
-
-        // Load available models and set current model
-        fetchModels().then(models => {
+        // Load current settings
+        Promise.all([
+            getCurrentModel(),
+            getContextLength(),
+            fetchModels()
+        ]).then(([currentModel, currentContextLength, models]) => {
+            // Set up model select
             modelSelect.innerHTML = '';
             let currentModelName = '';
             
-            // Try to get current model from saved settings first
-            if (savedSettings) {
-                const { model } = JSON.parse(savedSettings);
-                currentModelName = model;
-            } else if (savedModel) {
-                const { provider, model } = JSON.parse(savedModel);
-                currentModelName = `${provider}:${model}`;
+            if (currentModel) {
+                currentModelName = `${currentModel.provider}:${currentModel.model}`;
             }
             
             models.forEach(model => {
@@ -3451,18 +3807,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 modelSelect.appendChild(option);
             });
+
+            // Set context length
+            if (currentContextLength) {
+                contextLengthInput.value = currentContextLength;
+            }
+
+            // Load saved settings from localStorage
+            const savedSettings = localStorage.getItem('modelSettings');
+            if (savedSettings) {
+                const { baseUrl, apiKey } = JSON.parse(savedSettings);
+                baseUrlInput.value = baseUrl || '';
+                apiKeyInput.value = apiKey || '';
+            }
+        }).catch(error => {
+            console.error('Error loading model configuration:', error);
+            showNotification('Failed to load model configuration', 3000, true);
         });
-
-        // Set saved values in the form
-        if (savedSettings) {
-            const { baseUrl, apiKey } = JSON.parse(savedSettings);
-            baseUrlInput.value = baseUrl || '';
-            apiKeyInput.value = apiKey || '';
-        }
-
-        if (savedContextLength) {
-            contextLengthInput.value = savedContextLength;
-        }
 
         // Save configuration
         const saveConfig = async () => {

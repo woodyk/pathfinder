@@ -381,86 +381,244 @@ class TranscriptManager {
         
         if (!transcript) return;
         
-        // Add header with information and Load button
+        // Calculate message statistics
+        const userMessages = transcript.messages.filter(msg => msg.role === 'user').length;
+        const assistantMessages = transcript.messages.filter(msg => msg.role === 'assistant').length;
+        const totalMessages = userMessages + assistantMessages;
+        const lastModified = new Date(transcript.last_modified || transcript.date);
+        
+        // Create header container
         const headerDiv = document.createElement('div');
         headerDiv.className = 'transcript-content-header';
+        
         headerDiv.innerHTML = `
-            <div class="header-info">
-                <h3>${transcript.name}</h3>
-                <span class="date">${new Date(transcript.date).toLocaleString()}</span>
+            <div class="header-main">
+                <div class="header-left">
+                    <h3>${transcript.name}</h3>
+                </div>
+                <div class="header-right">
+                    <div class="header-stats">
+                        <div class="stat-group">
+                            <span class="stat-label">Messages</span>
+                            <span class="stat-value">${totalMessages}</span>
+                        </div>
+                        <div class="stat-group">
+                            <span class="stat-label">User</span>
+                            <span class="stat-value">${userMessages}</span>
+                        </div>
+                        <div class="stat-group">
+                            <span class="stat-label">Assistant</span>
+                            <span class="stat-value">${assistantMessages}</span>
+                        </div>
+                    </div>
+                </div>
             </div>
-            <div class="header-actions">
-                <button class="load-transcript-btn primary-button">
-                    <svg viewBox="0 0 24 24" width="16" height="16" style="margin-right: 4px;">
-                        <path fill="currentColor" d="M19,20H4C2.89,20 2,19.1 2,18V6C2,4.89 2.89,4 4,4H10L12,6H19A2,2 0 0,1 21,8V18A2,2 0 0,1 19,20M13,13V8H11V13H8L12,17L16,13H13Z"/>
-                    </svg>
-                    Load for Chat
-                </button>
+            <div class="header-bottom">
+                <div class="header-actions">
+                    <button id="load-transcript" class="open-button">Open</button>
+                    <button id="delete-transcript" class="danger-button">Delete</button>
+                    <button id="commit-deletions" class="danger-button" style="display: none;">Delete Selected</button>
+                </div>
+                <div class="header-meta">
+                    <div class="meta-group">
+                        <span class="meta-label">Created:</span>
+                        <span class="meta-value">${new Date(transcript.date).toLocaleString()}</span>
+                    </div>
+                    <div class="meta-group">
+                        <span class="meta-label">Modified:</span>
+                        <span class="meta-value">${lastModified.toLocaleString()}</span>
+                    </div>
+                </div>
             </div>
-            <p class="header-note">
-                You're viewing this transcript in read-only mode. 
-                Click "Load for Chat" or double-click the transcript to load it into the active chat session.
-            </p>
         `;
         
-        // Add inline styles for the header
+        // Add styles
         const style = document.createElement('style');
         style.textContent = `
             .transcript-content-header {
-                padding: 12px;
+                padding: 16px;
                 border-bottom: 1px solid var(--border-color);
-                margin-bottom: 12px;
+                background-color: var(--bg-secondary);
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+                position: sticky;
+                top: 0;
+                z-index: 10;
+                backdrop-filter: blur(8px);
+                background-color: rgba(var(--bg-secondary-rgb), 0.8);
             }
-            .transcript-content-header .header-info {
+            .transcript-content {
+                flex: 1;
+                overflow-y: auto;
+                padding: 16px;
+                display: flex;
+                flex-direction: column;
+                gap: 16px;
+                background-color: var(--bg-primary);
+                position: relative;
+            }
+            .transcript-messages {
+                position: relative;
+                z-index: 1;
+            }
+            .transcript-content-header .header-main {
                 display: flex;
                 justify-content: space-between;
-                align-items: center;
-                margin-bottom: 8px;
+                align-items: flex-start;
+                gap: 16px;
             }
-            .transcript-content-header h3 {
+            .transcript-content-header .header-left h3 {
                 margin: 0;
-                font-size: 16px;
+                font-size: 20px;
+                color: var(--text-primary);
+                font-weight: 600;
             }
-            .transcript-content-header .date {
+            .transcript-content-header .header-right {
+                display: flex;
+                flex-direction: column;
+                align-items: flex-end;
+            }
+            .transcript-content-header .header-stats {
+                display: flex;
+                gap: 24px;
+                text-align: center;
+            }
+            .transcript-content-header .stat-group {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 4px;
+            }
+            .transcript-content-header .stat-label {
                 font-size: 12px;
                 color: var(--text-muted);
             }
-            .transcript-content-header .header-actions {
-                margin: 10px 0;
+            .transcript-content-header .stat-value {
+                font-size: 16px;
+                font-weight: 500;
+                color: var(--text-primary);
             }
-            .transcript-content-header .primary-button {
+            .transcript-content-header .header-bottom {
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-start;
+                margin-top: 8px;
+            }
+            .transcript-content-header .header-actions {
+                display: flex;
+                gap: 8px;
+            }
+            .transcript-content-header .header-meta {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+                align-items: flex-end;
+            }
+            .transcript-content-header .meta-group {
                 display: flex;
                 align-items: center;
-                justify-content: center;
-                padding: 6px 12px;
-                background-color: var(--primary-color);
+                gap: 8px;
+                justify-content: flex-end;
+                width: 100%;
+            }
+            .transcript-content-header .meta-label {
+                font-size: 12px;
+                font-weight: 600;
+                color: var(--text-primary);
+                min-width: 80px;
+                text-align: right;
+            }
+            .transcript-content-header .meta-value {
+                font-size: 12px;
+                color: var(--text-primary);
+            }
+            .transcript-content-header .open-button {
+                padding: 8px 16px;
+                background-color: var(--bg-tertiary);
+                color: var(--text-primary);
+                border: 1px solid var(--border-color);
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 14px;
+                font-weight: 500;
+                transition: all 0.2s;
+            }
+            .transcript-content-header .open-button:hover {
+                background-color: var(--hover-bg);
+                border-color: var(--primary-color);
+            }
+            .transcript-content-header .danger-button {
+                padding: 8px 16px;
+                background-color: var(--error-color);
                 color: white;
                 border: none;
                 border-radius: 4px;
                 cursor: pointer;
-                font-size: 13px;
+                font-size: 14px;
+                font-weight: 500;
                 transition: background-color 0.2s;
             }
-            .transcript-content-header .primary-button:hover {
-                background-color: var(--primary-hover);
+            .transcript-content-header .danger-button:hover {
+                background-color: var(--error-hover);
             }
-            .transcript-content-header .header-note {
-                font-size: 12px;
+            .chat-message {
+                position: relative;
+                transition: opacity 0.2s;
+            }
+            .chat-message.selected-for-deletion {
+                opacity: 0.5;
+                background-color: var(--error-bg);
+            }
+            .chat-message.selected-for-deletion .message-content {
+                opacity: 0.5;
+            }
+            .message-delete-button {
+                position: absolute;
+                top: 8px;
+                right: 8px;
+                padding: 4px;
+                background: none;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
                 color: var(--text-muted);
-                margin: 8px 0 0 0;
-                line-height: 1.4;
+                transition: all 0.2s;
+                opacity: 0;
+            }
+            .chat-message:hover .message-delete-button,
+            .chat-message.selected-for-deletion .message-delete-button {
+                opacity: 1;
+            }
+            .message-delete-button:hover,
+            .chat-message.selected-for-deletion .message-delete-button {
+                color: var(--error-color);
             }
         `;
         document.head.appendChild(style);
         
-        // Add event listener to the load button
+        // Add elements to container
         this.contentContainer.appendChild(headerDiv);
-        const loadButton = headerDiv.querySelector('.load-transcript-btn');
-        if (loadButton) {
-            loadButton.addEventListener('click', () => {
-                this.loadTranscriptIntoChat(transcript.id);
-            });
-        }
+        
+        // Add event listeners
+        const loadButton = headerDiv.querySelector('#load-transcript');
+        const deleteButton = headerDiv.querySelector('#delete-transcript');
+        const commitDeletionsButton = headerDiv.querySelector('#commit-deletions');
+        
+        // Store selected messages for deletion
+        this.selectedMessagesForDeletion = new Set();
+        
+        loadButton.addEventListener('click', () => {
+            this.loadTranscriptIntoChat(transcript.id);
+        });
+        
+        deleteButton.addEventListener('click', () => {
+            this.deleteTranscript();
+        });
+        
+        commitDeletionsButton.addEventListener('click', () => {
+            this.commitMessageDeletions();
+        });
         
         // Add messages container
         const messagesContainer = document.createElement('div');
@@ -468,11 +626,12 @@ class TranscriptManager {
         this.contentContainer.appendChild(messagesContainer);
         
         // Add messages
-        transcript.messages.forEach(message => {
+        transcript.messages.forEach((message, index) => {
             if (message.role === 'system') return; // Skip system messages
             
             const messageDiv = document.createElement('div');
             messageDiv.className = `chat-message ${message.role}`;
+            messageDiv.dataset.messageIndex = index;
             
             // Create message content wrapper
             const wrapperDiv = document.createElement('div');
@@ -495,7 +654,21 @@ class TranscriptManager {
                 contentDiv.appendChild(paragraph);
             }
             
+            // Add delete button
+            const deleteButton = document.createElement('button');
+            deleteButton.className = 'message-delete-button';
+            deleteButton.innerHTML = `
+                <svg viewBox="0 0 24 24" width="16" height="16">
+                    <path fill="currentColor" d="M19,4H15.5L14.5,3H9.5L8.5,4H5V6H19M6,19A2,2 0 0,0 8,21H16A2,2 0 0,0 18,19V7H6V19Z"/>
+                </svg>
+            `;
+            deleteButton.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.toggleMessageForDeletion(messageDiv, index);
+            });
+            
             wrapperDiv.appendChild(contentDiv);
+            wrapperDiv.appendChild(deleteButton);
             
             // Add timestamp if available
             if (message.timestamp) {
@@ -518,9 +691,6 @@ class TranscriptManager {
             messageDiv.appendChild(wrapperDiv);
             messagesContainer.appendChild(messageDiv);
         });
-        
-        // Scroll to top to show the header first
-        this.contentContainer.scrollTop = 0;
     }
     
     async selectTranscript(id) {
@@ -599,23 +769,8 @@ class TranscriptManager {
     }
     
     searchTranscripts(query) {
-        if (!query.trim()) {
-            this.renderTranscriptList();
-            return;
-        }
-        
-        // For now, we'll continue to search locally for better performance
-        // since we already have all transcripts loaded
-        const lowerQuery = query.toLowerCase();
-        const filtered = this.transcripts.filter(transcript => {
-            return transcript.name.toLowerCase().includes(lowerQuery) ||
-                   transcript.messages.some(msg => msg.content.toLowerCase().includes(lowerQuery));
-        });
-        
-        this.renderTranscriptList(filtered);
-        
-        // Alternatively, use the API for searching
-        // this.searchTranscriptsViaAPI(query);
+        // Remove search functionality
+        return;
     }
     
     showContextMenu(x, y) {
@@ -1285,6 +1440,72 @@ class TranscriptManager {
                 this.container.style.display = 'none';
                 this.isVisible = false;
             }
+        }
+    }
+
+    searchInTranscript(query) {
+        // Remove search functionality
+        return;
+    }
+    
+    toggleMessageForDeletion(messageDiv, index) {
+        if (!this.selectedMessagesForDeletion) {
+            this.selectedMessagesForDeletion = new Set();
+        }
+        
+        if (this.selectedMessagesForDeletion.has(index)) {
+            this.selectedMessagesForDeletion.delete(index);
+            messageDiv.classList.remove('selected-for-deletion');
+        } else {
+            this.selectedMessagesForDeletion.add(index);
+            messageDiv.classList.add('selected-for-deletion');
+        }
+        
+        // Show/hide commit button based on selection
+        const commitButton = this.contentContainer.querySelector('#commit-deletions');
+        if (commitButton) {
+            commitButton.style.display = this.selectedMessagesForDeletion.size > 0 ? '' : 'none';
+        }
+    }
+    
+    async commitMessageDeletions() {
+        if (!this.selectedTranscript || !this.selectedMessagesForDeletion || this.selectedMessagesForDeletion.size === 0) {
+            return;
+        }
+        
+        try {
+            // Create a new messages array without the deleted messages
+            const newMessages = this.selectedTranscript.messages.filter((_, index) => {
+                return !this.selectedMessagesForDeletion.has(index);
+            });
+            
+            // Update the transcript in the backend
+            const response = await fetch(`${this.API_BASE_URL}/api/transcripts/${this.selectedTranscript.id}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({
+                    messages: newMessages
+                })
+            });
+            
+            if (!response.ok) {
+                throw new Error(`Failed to update transcript: ${response.statusText}`);
+            }
+            
+            // Update the local transcript
+            this.selectedTranscript.messages = newMessages;
+            
+            // Clear selection and refresh the view
+            this.selectedMessagesForDeletion.clear();
+            this.renderTranscriptContent(this.selectedTranscript);
+            
+            this.showNotification(`Deleted ${this.selectedMessagesForDeletion.size} messages`);
+        } catch (error) {
+            console.error('Error deleting messages:', error);
+            this.showNotification('Failed to delete messages', true);
         }
     }
 }
