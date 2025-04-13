@@ -254,7 +254,11 @@ class ChatInterface {
         // Bind send button
         const sendButton = document.getElementById('send-button');
         if (sendButton) {
-            sendButton.addEventListener('click', () => this.handleSendMessage());
+            sendButton.addEventListener('click', () => {
+                if (!this.isWaitingForResponse) {
+                    this.handleSendMessage();
+                }
+            });
         }
         
         // Bind Enter key in textarea (Shift+Enter for new line)
@@ -262,8 +266,12 @@ class ChatInterface {
         if (textarea) {
             textarea.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    this.handleSendMessage();
+                    if (!this.isWaitingForResponse) {
+                        e.preventDefault();
+                        this.handleSendMessage();
+                    } else {
+                        e.preventDefault();
+                    }
                 }
             });
             
