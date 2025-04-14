@@ -764,6 +764,27 @@ body {
     color: white;
 }
 
+.file-chip.loading {
+    opacity: 0.8;
+    background-color: var(--bg-secondary);
+}
+
+.file-chip .loading-spinner {
+    width: 12px;
+    height: 12px;
+    margin-left: 4px;
+    border: 2px solid var(--border-color);
+    border-top-color: var(--accent-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 /* Update chat input container to accommodate file chips */
 .chat-input-container {
     position: sticky;

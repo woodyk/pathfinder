@@ -1254,8 +1254,13 @@ document.addEventListener('DOMContentLoaded', () => {
         chip.className = 'file-chip';
         // Limit filename to 12 characters, adding ellipsis if longer
         const displayName = filename.length > 12 ? filename.substring(0, 12) + '...' : filename;
+        
+        const attachment = window.pendingAttachments[index];
+        const isLoading = attachment && attachment.loading;
+        
         chip.innerHTML = `
             <span class="file-name" title="${filename}">${displayName}</span>
+            ${isLoading ? '<span class="loading-spinner"></span>' : ''}
             <span class="remove-file" data-index="${index}" title="Remove file">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
                     <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -1263,6 +1268,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 </svg>
             </span>
         `;
+        
+        if (isLoading) {
+            chip.classList.add('loading');
+        }
+        
         return chip;
     }
 
@@ -2224,13 +2234,24 @@ document.addEventListener('DOMContentLoaded', () => {
         // Handle double-click for files
         if (e.detail === 2 && !item.classList.contains('directory')) {
             const path = item.dataset.path;
+            const filename = path.split('/').pop();
+            
             // Check if file is already attached
-            const isAlreadyAttached = window.pendingAttachments.some(att => att.filename === path.split('/').pop());
+            const isAlreadyAttached = window.pendingAttachments.some(att => att.filename === filename);
             if (isAlreadyAttached) {
-                showNotification(`File ${path.split('/').pop()} is already attached`, 2000);
+                showNotification(`File ${filename} is already attached`, 2000);
                 return;
             }
-            // Get file content and add to pending attachments
+
+            // Add file to pending attachments immediately with loading state
+            window.pendingAttachments.push({
+                filename: filename,
+                text: "",
+                loading: true
+            });
+            updateFileAttachments();
+
+            // Get file content and update the attachment
             fetch(`${API_BASE_URL}/api/files/info?path=${encodeURIComponent(path)}`)
                 .then(response => {
                     if (!response.ok) throw new Error('Failed to get file info');
@@ -2238,15 +2259,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 })
                 .then(data => {
                     if (data.preview) {
-                        pendingAttachments.push({
-                            filename: data.name,
-                            text: data.preview
-                        });
-                        updateFileAttachments();
+                        // Update the existing attachment with the content
+                        const attachment = window.pendingAttachments.find(att => att.filename === filename);
+                        if (attachment) {
+                            attachment.text = data.preview;
+                            attachment.loading = false;
+                            updateFileAttachments();
+                        }
                     }
                 })
                 .catch(error => {
                     console.error('Error getting file content:', error);
+                    // Remove the failed attachment
+                    const index = window.pendingAttachments.findIndex(att => att.filename === filename);
+                    if (index !== -1) {
+                        window.pendingAttachments.splice(index, 1);
+                        updateFileAttachments();
+                    }
                     showNotification(`Error getting file content: ${error.message}`, 3000);
                 });
             return;
@@ -2713,7 +2742,9 @@ document.addEventListener('DOMContentLoaded', () => {
             document.querySelectorAll('.file-tree-item.selected').forEach(el => {
                 el.classList.remove('selected');
             });
-            selectFileTreeItem(item);
+            // Add to selected files without updating preview
+            selectedFiles.add(item.dataset.path);
+            item.classList.add('selected');
         }
         
         // Create a drag image that shows all selected items
