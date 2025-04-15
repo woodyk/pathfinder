@@ -4,6 +4,7 @@
 # File: transcripts.py
 # Description: Transcript management functionality with SQLite database
 # Created: 2025-05-15
+# Modified: 2025-04-14 17:46:09
 
 import os
 import json
@@ -16,7 +17,7 @@ from datetime import datetime
 class TranscriptManager:
     """Manages transcripts with a SQLite database backend"""
     
-    def __init__(self, db_path: str = 'pathfinder.db'):
+    def __init__(self, db_path: str = 'data/transcripts.db'):
         """Initialize the transcript manager with a SQLite database
         
         Args:

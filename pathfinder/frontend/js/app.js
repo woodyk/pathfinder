@@ -3267,9 +3267,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const buttonBg = hslToHex(h, s, 22);
             const buttonHoverBg = hslToHex(h, s, 28);
             
-            // Use fixed red color for error elements
+            // Fixed colors for error and highlight states
             const errorColor = '#f85149'; // GitHub's error red
             const errorHover = '#ff6b6b'; // Slightly lighter red for hover
+            const highlightColor = '#ffd700'; // Yellow for highlights
+            const highlightText = '#000000'; // Black text for highlights
+            const highlightBg = 'rgba(255, 215, 0, 0.2)'; // Yellow with transparency
             
             return {
                 '--bg-primary': bgPrimary,
@@ -3292,7 +3295,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 '--button-hover-text': textPrimary,
                 '--focus-color': primaryColor,
                 '--selection-bg': `${primaryColor}1a`,
-                '--selection-border': `${primaryColor}4d`
+                '--selection-border': `${primaryColor}4d`,
+                '--highlight-color': highlightColor,
+                '--highlight-text': highlightText,
+                '--highlight-bg': highlightBg,
+                '--primary-color': primaryColor,
+                '--accent-hover': buttonHoverBg
             };
         } else {
             // Light theme generation
@@ -3306,9 +3314,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const buttonBg = hslToHex(h, s, 96);
             const buttonHoverBg = hslToHex(h, s, 92);
             
-            // Use fixed red color for error elements
+            // Fixed colors for error and highlight states
             const errorColor = '#cf222e'; // GitHub's error red for light theme
             const errorHover = '#ff6b6b'; // Slightly lighter red for hover
+            const highlightColor = '#ffd700'; // Yellow for highlights
+            const highlightText = '#000000'; // Black text for highlights
+            const highlightBg = 'rgba(255, 215, 0, 0.2)'; // Yellow with transparency
             
             return {
                 '--bg-primary': bgPrimary,
@@ -3331,7 +3342,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 '--button-hover-text': textPrimary,
                 '--focus-color': primaryColor,
                 '--selection-bg': `${primaryColor}1a`,
-                '--selection-border': `${primaryColor}4d`
+                '--selection-border': `${primaryColor}4d`,
+                '--highlight-color': highlightColor,
+                '--highlight-text': highlightText,
+                '--highlight-bg': highlightBg,
+                '--primary-color': primaryColor,
+                '--accent-hover': buttonHoverBg
             };
         }
     }

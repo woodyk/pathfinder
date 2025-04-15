@@ -12,7 +12,7 @@
     --border-color: #30363d;
     --accent-color: #2f81f7;
     --accent-color-rgb: 47, 129, 247;
-    --hover-color: #1f2937;
+    --hover-color: rgba(47, 129, 247, 0.2);
     --user-message-bg: #1f2937;
     --assistant-message-bg: #161b22;
     --error-color: #f85149;
@@ -24,7 +24,7 @@
     --button-active: #2f81f7;
     --button-text: #8b949e;
     --button-hover-text: #c9d1d9;
-    --hover-bg: #1f2937;
+    --hover-bg: rgba(47, 129, 247, 0.1);
     --selected-bg: rgba(47, 129, 247, 0.1);
     --focus-color: #2f81f7;
     --focus-border: 2px solid #2f81f7;
@@ -50,27 +50,27 @@
     --text-muted: #999999;
     --border-color: #e0e0e0;
     --accent-color: #0969da;
-    --accent-color-rgb: 9, 105, 218; /* RGB values for accent color */
-    --hover-color: #f0f0f0;
+    --accent-color-rgb: 9, 105, 218;
+    --hover-color: rgba(9, 105, 218, 0.2);
     --user-message-bg: #f3f4f6;
     --assistant-message-bg: #ffffff;
-    --error-color: #f85149;
+    --error-color: #cf222e;
     --error-hover: #ff6b6b;
-    --error-bg: rgba(248, 81, 73, 0.1);
+    --error-bg: rgba(207, 34, 46, 0.1);
     --header-height: 45px;
     --button-bg: #f3f4f6;
     --button-hover-bg: #e5e7eb;
     --button-active: #0969da;
     --button-text: #57606a;
     --button-hover-text: #24292f;
-    --hover-bg: #f0f0f0;
+    --hover-bg: rgba(9, 105, 218, 0.1);
     --selected-bg: rgba(0, 0, 0, 0.1);
     --focus-color: #0969da;
     --focus-border: 2px solid #0969da;
-    --selection-bg: #2f81f7;
-    --selection-border: 1px solid #2f81f7;
-    --primary-color: #2f81f7;
-    --accent-hover: #3d4451;
+    --selection-bg: rgba(9, 105, 218, 0.1);
+    --selection-border: rgba(9, 105, 218, 0.3);
+    --primary-color: #0969da;
+    --accent-hover: #e5e7eb;
     --highlight-color: #ffd700;
     --highlight-text: #000000;
     --highlight-bg: rgba(255, 215, 0, 0.2);
@@ -582,7 +582,7 @@ body {
     background-color: var(--user-message-bg);
     border: 1px solid var(--border-color);
     border-radius: 15px;
-    padding: 12px 16px;
+    padding: 16px 20px;
     line-height: 1.5;
     font-size: 14px;
     max-width: 100%;
@@ -807,7 +807,7 @@ body {
     position: relative;
     min-height: 85px;
     padding: 12px 48px 12px 16px;
-    background-color: var(--bg-secondary);
+    background-color: var(--user-message-bg);
     border-radius: 15px;
     margin: 0 0.25rem;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
@@ -1378,7 +1378,7 @@ body {
 }
 
 .file-explorer .header-button:hover {
-    background-color: var(--hover-color);
+    background-color: var(--hover-bg);
     color: var(--text-primary);
 }
 
@@ -1432,7 +1432,7 @@ body {
 }
 
 .context-menu-item:hover {
-    background-color: var(--hover-color);
+    background-color: var(--hover-bg);
 }
 
 .context-menu-item .icon {
@@ -1718,12 +1718,13 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 8px 12px;
+    padding: 4px 8px;
     background-color: var(--bg-secondary);
     border-bottom: 1px solid var(--border-color);
     cursor: move;
     user-select: none;
     transition: background-color 0.2s ease;
+    height: 32px;
 }
 
 .window-manager-header:hover {
@@ -2331,11 +2332,15 @@ body {
     background-color: var(--user-message-bg);
     border: 1px solid var(--border-color);
     border-radius: 15px;
-    padding: 12px 16px;
+    padding: 16px 20px;
     line-height: 1.5;
     font-size: 14px;
     max-width: 100%;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    word-break: break-word;
+    hyphens: auto;
 }
 
 /* Enhanced transcript manager styles for consistent appearance */

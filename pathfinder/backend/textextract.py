@@ -5,13 +5,14 @@
 # Author: Wadih Khairallah
 # Description: 
 # Created: 2024-12-01 12:12:08
-# Modified: 2025-04-05 00:22:46
+# Modified: 2025-04-14 20:09:18
 
 import json
 import math
 import re
 import os
 import subprocess
+import string
 import magic
 import hashlib
 import pytesseract
@@ -145,9 +146,66 @@ def extract_text(file_path):
         >>> extract_text("invalid_file.txt")
         None  # Logs "Error reading invalid_file.txt: [error]"
     """
+    TEXT_MIME_TYPES = {
+        # ─── Programming Languages ───
+        "application/x-python-code",
+        "application/x-java-source",
+        "application/x-c",
+        "application/x-c++",
+        "application/x-rust",
+        "application/x-go",
+        "application/x-haskell",
+        "application/x-kotlin",
+        "application/x-scala",
+        "application/x-lua",
+        "application/x-swift",
+
+        # ─── Web and Scripting ───
+        "application/javascript",
+        "application/x-javascript",
+        "application/x-httpd-php",
+        "application/x-perl",
+        "application/x-ruby",
+        "application/x-sh",
+        "application/x-shellscript",
+
+        # ─── Config/Markup/Data ───
+        "application/json",
+        "application/xml",
+        "application/x-yaml",
+        "application/x-toml",
+        "application/x-properties",
+        "application/x-ini",
+        "application/x-config",
+        "application/x-env",
+
+        # ─── SQL and Structured Data ───
+        "application/sql",
+        "application/x-sql",
+        "application/x-csv",
+        "application/x-turtle",
+        "application/sparql-query",
+
+        # ─── Lightweight Markup ───
+        "application/x-latex",
+        "application/x-tex",
+        "application/x-markdown",
+        "application/x-restructuredtext",
+
+        # ─── Certs and Keys ───
+        "application/x-pem-file",
+        "application/pem-certificate-chain",
+        "application/x-pkcs7-certificates",
+
+        # ─── Miscellaneous ───
+        "application/x-subrip",
+        "application/x-readme",
+        "application/x-crontab",
+    }
+
 
     file_path = clean_path(file_path)
-    if file_path is False: 
+    if not file_path: 
         print(f"No such file: {file_path}")
         return f"No such file: {file_path}"
 
@@ -157,7 +215,7 @@ def extract_text(file_path):
     mime_type = magic.from_file(file_path, mime=True)
     try:
         content = "" 
-        if mime_type.startswith('text/') or mime_type in ['application/json', 'application/xml', 'application/x-yaml', 'text/markdown']:
+        if mime_type.startswith('text/') or mime_type in TEXT_MIME_TYPES:
             with open(file_path, 'r') as f:
                 content = f.read()
 
@@ -168,7 +226,10 @@ def extract_text(file_path):
             content = text_from_pdf(file_path)
 
         elif mime_type == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
-            content = text_from_word(file_path)
+            content = text_from_docx(file_path)
+
+        elif mime_type == 'application/msword':
+            content = text_from_doc(file_path)
 
         elif mime_type.startswith('image/'):
             content = text_from_image(file_path)
@@ -179,7 +240,7 @@ def extract_text(file_path):
         else:
             content = text_from_other(file_path)
 
-        if len(content) > 0:
+        if content is not None and len(content) > 0:
             content = content.encode('utf-8').decode('utf-8', errors='ignore')
             return content
 
@@ -246,7 +307,7 @@ def is_image(file_path_or_url):
     try:
         mime = magic.from_file(file_path_or_url, mime=True)
         if mime.startswith("image/"):
-            return true
+            return True
     except Exception as e:
         return False
 
@@ -303,7 +364,87 @@ def text_from_pdf(pdf_path):
 
     return plain_text
 
-def text_from_word(file_path):
+def text_from_doc(filepath, min_length=4):
+    def extract_printable_strings(binary_data):
+        pattern = re.compile(b'[' + re.escape(bytes(string.printable, 'ascii')) + b']{%d,}' % min_length)
+        matches = pattern.findall(binary_data)
+        decoded = [m.decode(errors='ignore').strip() for m in matches]
+        return list(dict.fromkeys(decoded))  # preserve order, remove duplicates
+
+    def clean_strings(strings):
+        cleaned = []
+        skip_prefixes = ["HYPERLINK", "OLE2", "bjbj", "Normal.dotm"]
+        for line in strings:
+            if any(line.startswith(prefix) for prefix in skip_prefixes):
+                continue
+            line = re.sub(r'HYPERLINK\s+"[^"]+"', '', line)
+            line = re.sub(r'\s+', ' ', line).strip()
+            if line:
+                cleaned.append(line)
+        return cleaned
+
+    def extract_metadata(strings):
+        metadata = {}
+        for line in strings:
+            if "Microsoft Word" in line:
+                metadata["Software"] = line
+            elif "Word.Document" in line:
+                metadata["Format"] = line
+            elif "Title" in line and "Title" not in metadata:
+                metadata["Title"] = line
+            elif "MSWordDoc" in line:
+                metadata["Format Version"] = line
+            elif "Woody K" in line and "Author" not in metadata:
+                metadata["Author"] = line
+        return metadata
+
+    def remove_non_content_tail(strings):
+        cutoff_patterns = ["[Content_Types].xml", "<?xml", "theme/", "PK", "<ds:", "<a:", "_rels/"]
+        clean_until = len(strings)
+        for i, line in enumerate(strings):
+            if any(pat in line for pat in cutoff_patterns):
+                clean_until = i
+                break
+        return strings[:clean_until]
+
+    def group_into_paragraphs(lines):
+        paragraphs = []
+        paragraph = []
+        for line in lines:
+            if re.match(r'^[A-Z][a-z]+.*[.:;]$', line) or len(line.split()) > 10:
+                paragraph.append(line)
+            else:
+                if paragraph:
+                    paragraphs.append(" ".join(paragraph))
+                    paragraph = []
+                paragraphs.append(line)
+        if paragraph:
+            paragraphs.append(" ".join(paragraph))
+        return paragraphs
+
+    if not os.path.isfile(filepath):
+        raise FileNotFoundError(f"File '{filepath}' does not exist.")
+
+    with open(filepath, 'rb') as f:
+        binary_data = f.read()
+
+    raw_strings = extract_printable_strings(binary_data)
+    cleaned = clean_strings(raw_strings)
+    metadata = extract_metadata(cleaned)
+    cleaned = remove_non_content_tail(cleaned)
+    paragraphs = group_into_paragraphs(cleaned)
+
+    # Create output string
+    output = ["--- Metadata ---"]
+    for k, v in metadata.items():
+        output.append(f"{k}: {v}")
+    output.append("\n--- Document Content ---\n")
+    output.append("\n\n".join(paragraphs))
+
+    return "\n".join(output)
+
+
+def text_from_docx(file_path):
     """
     Extracts plain text from a Word (.docx) file, including text, tables, and images with OCR.
     """
@@ -361,8 +502,8 @@ def text_from_excel(file_path):
     csv_content = ""
     try:
         df = pd.read_excel(file_path)
-        ouput = StringIO()
-        df.to_csv(file_path, index=False)
+        output = StringIO()
+        df.to_csv(output, index=False)
         csv_content = output.getvalue()
     except Exception as e:
         print(f"Failed to convert Excel to CSV: {e}")
@@ -378,7 +519,8 @@ def text_from_image(file_path):
         with Image.open(file_path) as img:
             # Perform OCR to extract text
             extracted_text = pytesseract.image_to_string(img).strip()
-            return extracted_text if extracted_text else "[No text could be extracted from the image]"
+            return extracted_text if extracted_text else ""
+
     except Exception as e:
         print(f"Failed to process image: {file_path}, Error: {e}")
         return None
