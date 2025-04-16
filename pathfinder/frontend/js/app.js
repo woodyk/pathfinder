@@ -1003,12 +1003,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
 document.addEventListener('DOMContentLoaded', () => {
     const chatInput = document.querySelector('.chat-input textarea');
-    const sendButton = document.querySelector('#send-button');
-    const clearButton = document.querySelector('#clear-chat');
-    const configButton = document.querySelector('#config-chat');
     const chatMessages = document.querySelector('.chat-messages');
-    const API_BASE_URL = 'http://127.0.0.1:5000';
-
+    const sendButton = document.getElementById('send-button');
+    const clearButton = document.getElementById('clear-chat');
+    const modelConfigButton = document.getElementById('config-chat');
+    
+    // Process any queued windowManager callbacks
+    if (window.windowManager && window._windowManagerQueue && window._windowManagerQueue.length > 0) {
+        const callbacks = [...window._windowManagerQueue];
+        window._windowManagerQueue = [];
+        callbacks.forEach(callback => callback(window.windowManager));
+    }
+    
+    // Initialize transcripts, file explorer and other components
     let isProcessing = false;
     let fileTree = [];
     let selectedFiles = new Set();
@@ -1031,45 +1038,19 @@ document.addEventListener('DOMContentLoaded', () => {
     const themeToggle = document.getElementById('theme-toggle-input');
     const root = document.documentElement;
     
-    // Import Window Manager
-    let windowManagerLoaded = false; // Flag to track if window manager is loaded
-    
-    // Preload and initialize window manager
-    import('./window-manager.js').then(({default: windowManager}) => {
-        // Make window manager globally available
-        window.windowManager = windowManager;
-        windowManagerLoaded = true;
-        
-        // Execute any queued operations that were waiting for the window manager
-        if (window._windowManagerQueue && window._windowManagerQueue.length > 0) {
-            window._windowManagerQueue.forEach(fn => fn(windowManager));
-            window._windowManagerQueue = [];
-        }
-    }).catch(error => {
-        console.error('Error loading Window Manager:', error);
-    });
-    
-    // Queue for operations that need the window manager
-    window._windowManagerQueue = window._windowManagerQueue || [];
+    // Initialize window manager queue for deferred callbacks
+    if (!window._windowManagerQueue) {
+        window._windowManagerQueue = [];
+    }
     
     // Helper function to use window manager safely
     function withWindowManager(callback) {
-        if (windowManagerLoaded && window.windowManager) {
+        if (window.windowManager) {
             callback(window.windowManager);
         } else {
             window._windowManagerQueue.push(callback);
         }
     }
-
-    // Initialize theme from localStorage or default to dark
-    
-    // Import Window Manager
-    import('./window-manager.js').then(({default: windowManager}) => {
-        // The window manager is now available
-        window.windowManager = windowManager;
-    }).catch(error => {
-        console.error('Error loading Window Manager:', error);
-    });
 
     // Initialize theme from localStorage or default to dark
     const savedTheme = localStorage.getItem('theme') || 'dark';
@@ -3417,43 +3398,83 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function loadFileContent(path, reader) {
         try {
-            const response = await fetch(`${API_BASE_URL}/api/files/info?path=${encodeURIComponent(path)}`);
-            if (!response.ok) throw new Error('Failed to load file content');
-            
-            const fileInfo = await response.json();
             const contentDiv = reader.querySelector('.document-reader-content');
+            const response = await fetch(`${API_BASE_URL}/api/files/info?path=${encodeURIComponent(path)}`);
             
-            // Check if it's an image file
-            const isImage = /\.(jpg|jpeg|png|gif|bmp|webp)$/i.test(fileInfo.name);
+            if (!response.ok) {
+                contentDiv.textContent = `Error loading file: ${response.statusText}`;
+                return;
+            }
             
-            if (isImage) {
-                // For images, create an img element that scales to fit the document viewer
-                contentDiv.innerHTML = `
-                    <div style="display: flex; justify-content: center; align-items: center; height: 100%;">
-                        <img src="user_data/${path}" 
-                             alt="${fileInfo.name}"
-                             style="max-width: 100%; max-height: 100%; object-fit: contain;">
-                    </div>
-                `;
-            } else if (fileInfo.preview_type === 'text' && fileInfo.preview) {
-                // Store the original content for search functionality
-                contentDiv.dataset.originalContent = fileInfo.preview;
+            const fileData = await response.json();
+            
+            if (fileData.error) {
+                contentDiv.textContent = `Error loading file: ${fileData.error}`;
+                return;
+            }
+            
+            // Store original content in dataset for search and widget conversion
+            contentDiv.dataset.originalContent = fileData.preview || '';
+            
+            // For images, create an img element that scales to fit the document viewer
+            if (fileData.preview_type === 'image') {
+                // Create a container for the image
+                const imageContainer = document.createElement('div');
+                imageContainer.style.display = 'flex';
+                imageContainer.style.justifyContent = 'center';
+                imageContainer.style.alignItems = 'center';
+                imageContainer.style.width = '100%';
+                imageContainer.style.height = '100%';
+                imageContainer.style.overflow = 'hidden';
                 
-                // Format the content with proper line breaks and whitespace
-                const formattedContent = fileInfo.preview
-                    .replace(/\r\n/g, '\n') // Normalize line endings
-                    .replace(/\n/g, '<br>') // Convert newlines to <br> tags
-                    .replace(/\t/g, '    '); // Convert tabs to spaces
+                // Create the image element
+                const img = document.createElement('img');
+                img.src = `user_data/${path}`;
+                img.alt = path;
+                img.style.maxWidth = '100%';
+                img.style.maxHeight = '100%';
+                img.style.objectFit = 'contain';
                 
-                // Set the content with proper formatting
-                contentDiv.innerHTML = formattedContent;
+                // Wait for image to load to get its natural dimensions
+                img.onload = () => {
+                    // Calculate the optimal window size based on image dimensions
+                    const padding = 40; // Account for window header and padding
+                    const maxWidth = window.innerWidth * 0.8; // Max 80% of window width
+                    const maxHeight = window.innerHeight * 0.8; // Max 80% of window height
+                    
+                    // Calculate scale factor to fit within max dimensions
+                    const widthScale = maxWidth / img.naturalWidth;
+                    const heightScale = maxHeight / img.naturalHeight;
+                    const scale = Math.min(widthScale, heightScale);
+                    
+                    // Set window dimensions to match scaled image
+                    const windowWidth = Math.min(img.naturalWidth * scale + padding, maxWidth);
+                    const windowHeight = Math.min(img.naturalHeight * scale + padding, maxHeight);
+                    
+                    // Update window size
+                    reader.style.width = `${windowWidth}px`;
+                    reader.style.height = `${windowHeight}px`;
+                    
+                    // Center the window
+                    const left = (window.innerWidth - windowWidth) / 2;
+                    const top = (window.innerHeight - windowHeight) / 2;
+                    reader.style.left = `${left}px`;
+                    reader.style.top = `${top}px`;
+                };
+                
+                imageContainer.appendChild(img);
+                contentDiv.innerHTML = '';
+                contentDiv.appendChild(imageContainer);
+            } 
+            // For text files, display content with proper formatting
+            else if (fileData.preview_type === 'text') {
+                contentDiv.textContent = fileData.preview || '';
             } else {
-                contentDiv.innerHTML = `<div class="error-message">Cannot display this file type</div>`;
+                contentDiv.textContent = 'Preview not available for this file type';
             }
         } catch (error) {
-            console.error('Error loading file content:', error);
-            const contentDiv = reader.querySelector('.document-reader-content');
-            contentDiv.innerHTML = `<div class="error-message">Error loading file: ${error.message}</div>`;
+            console.error("Error loading file:", error);
+            contentDiv.textContent = `Error loading file: ${error.message}`;
         }
     }
 
@@ -3915,7 +3936,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Add click handler for config button
-    configButton.addEventListener('click', () => {
+    modelConfigButton.addEventListener('click', () => {
         createModelConfigWindow();
     });
 
@@ -3952,4 +3973,149 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Make showNotification globally available
     window.showNotification = showNotification;
+
+    function makeWidgetDraggable(widget) {
+        const titleBar = widget.querySelector('.widget-title');
+        let isDragging = false;
+        let startX, startY, startLeft, startTop;
+        let originalWindow = null;
+
+        titleBar.addEventListener('mousedown', (e) => {
+            if (e.target.closest('.widget-actions')) return;
+            
+            isDragging = true;
+            startX = e.clientX;
+            startY = e.clientY;
+            startLeft = widget.offsetLeft;
+            startTop = widget.offsetTop;
+            
+            // Store reference to original window if this was converted from a window
+            originalWindow = widget.dataset.originalWindowId ? 
+                document.getElementById(widget.dataset.originalWindowId) : null;
+            
+            widget.style.zIndex = getHighestZIndex() + 1;
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            
+            const dx = e.clientX - startX;
+            const dy = e.clientY - startY;
+            
+            // If dragged far enough from the right column, restore to window
+            if (originalWindow && Math.abs(dx) > 100) {
+                isDragging = false;
+                restoreWidgetToWindow(widget, originalWindow);
+                return;
+            }
+            
+            widget.style.left = `${startLeft + dx}px`;
+            widget.style.top = `${startTop + dy}px`;
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (!isDragging) return;
+            isDragging = false;
+            
+            // Snap to right column if close enough
+            const rightColumn = document.querySelector('.right-column');
+            const widgetRect = widget.getBoundingClientRect();
+            const columnRect = rightColumn.getBoundingClientRect();
+            
+            if (Math.abs(widgetRect.right - columnRect.left) < 50) {
+                snapWidgetToColumn(widget, rightColumn);
+            }
+        });
+    }
+
+    function restoreWidgetToWindow(widget, originalWindow) {
+        if (!originalWindow) return;
+        
+        // Restore window position and size
+        originalWindow.style.display = 'block';
+        originalWindow.style.left = widget.style.left;
+        originalWindow.style.top = widget.style.top;
+        originalWindow.style.width = widget.style.width;
+        originalWindow.style.height = widget.style.height;
+        
+        // Remove widget
+        widget.remove();
+        
+        // Focus the restored window
+        originalWindow.focus();
+    }
+
+    function snapWidgetToColumn(widget, column) {
+        const widgets = column.querySelectorAll('.widget');
+        const columnRect = column.getBoundingClientRect();
+        const widgetHeight = widget.offsetHeight;
+        const padding = 10;
+        
+        // Calculate total height of existing widgets
+        let totalHeight = 0;
+        widgets.forEach(w => {
+            if (w !== widget) {
+                totalHeight += w.offsetHeight + padding;
+            }
+        });
+        
+        // Position the widget
+        widget.style.position = 'relative';
+        widget.style.left = '0';
+        widget.style.top = `${totalHeight}px`;
+        widget.style.width = '100%';
+        widget.style.marginBottom = `${padding}px`;
+        
+        // Ensure widget is visible in column
+        const widgetBottom = totalHeight + widgetHeight;
+        if (widgetBottom > columnRect.height) {
+            column.scrollTop = widgetBottom - columnRect.height;
+        }
+    }
+
+    function arrangeWidgets(column) {
+        const widgets = column.querySelectorAll('.widget');
+        const padding = 10;
+        let totalHeight = 0;
+        
+        widgets.forEach(widget => {
+            widget.style.position = 'relative';
+            widget.style.left = '0';
+            widget.style.top = `${totalHeight}px`;
+            widget.style.width = '100%';
+            widget.style.marginBottom = `${padding}px`;
+            totalHeight += widget.offsetHeight + padding;
+        });
+        
+        // Adjust column scroll if needed
+        const columnRect = column.getBoundingClientRect();
+        if (totalHeight > columnRect.height) {
+            column.scrollTop = totalHeight - columnRect.height;
+        }
+    }
+
+    function handleWidgetDrop(e) {
+        e.preventDefault();
+        const widget = document.querySelector('.dragging');
+        if (!widget) return;
+        
+        const column = e.target.closest('.column');
+        if (!column) return;
+        
+        // Remove from old column if exists
+        const oldColumn = widget.parentElement;
+        if (oldColumn && oldColumn.classList.contains('column')) {
+            oldColumn.removeChild(widget);
+        }
+        
+        // Add to new column
+        column.appendChild(widget);
+        widget.classList.remove('dragging');
+        
+        // Snap to column
+        snapWidgetToColumn(widget, column);
+        
+        // Rearrange all widgets in the column
+        arrangeWidgets(column);
+    }
 }); 
