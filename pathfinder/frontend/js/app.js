@@ -386,25 +386,46 @@ class ChatInterface {
         // Create assistant message container
         const assistantMessage = document.createElement('div');
         assistantMessage.className = 'chat-message assistant';
+        assistantMessage.dataset.timestamp = Date.now();
         
-        // Create wrapper for content
-        const wrapperDiv = document.createElement('div');
-        wrapperDiv.className = 'message-content-wrapper';
-        
-        // Create loading indicator with "Thinking..." text
-        const loadingDiv = document.createElement('div');
-        loadingDiv.className = 'loading-content';
-        loadingDiv.innerHTML = `
-            <div class="loading-text">Thinking</div>
-            <div class="loading-dots">
-                <span></span>
-                <span></span>
-                <span></span>
-            </div>
-        `;
-        wrapperDiv.appendChild(loadingDiv);
-        assistantMessage.appendChild(wrapperDiv);
-        
+        // Create avatar for assistant
+        const avatar = document.createElement('div');
+        avatar.className = 'avatar';
+        avatar.innerHTML = `<svg viewBox="0 0 24 24"><path fill="currentColor" d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,8.39C13.57,9.4 15.42,10 17.42,10C18.2,10 18.95,9.91 19.67,9.74C19.88,10.45 20,11.21 20,12C20,16.41 16.41,20 12,20C9,20 6.39,18.34 5,15.89L6.75,14V13A1.25,1.25 0 0,1 8,11.75A1.25,1.25 0 0,1 9.25,13V14H12M14.5,10.5C13.74,10.5 13.12,10.73 12.5,10.73C11.88,10.73 11.26,10.5 10.5,10.5C9.47,10.5 8.5,11.54 8.5,12.57C8.5,13.38 9.11,14 9.92,14H10.08C10.89,14 11.5,13.38 11.5,12.57C11.5,12.05 12.05,11.5 12.57,11.5C13.38,11.5 14,10.89 14,10.08V9.92C14,9.11 13.38,8.5 12.57,8.5C11.5,8.5 10.5,9.3 10.5,10.5"></path></svg>`;
+    assistantMessage.appendChild(avatar);
+    
+    // Create wrapper for content
+    const wrapperDiv = document.createElement('div');
+    wrapperDiv.className = 'message-content-wrapper';
+    
+    // Create loading indicator with "Thinking..." text
+    const loadingDiv = document.createElement('div');
+    loadingDiv.className = 'loading-content';
+    loadingDiv.innerHTML = `
+        <div class="loading-text">Thinking</div>
+        <div class="loading-dots">
+            <span></span>
+            <span></span>
+            <span></span>
+        </div>
+    `;
+    wrapperDiv.appendChild(loadingDiv);
+    
+    // Add timestamp to the wrapper
+    const messageTimestamp = document.createElement('div');
+    messageTimestamp.className = 'message-timestamp';
+    const msgDate = new Date();
+    const formattedDate = msgDate.toLocaleString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+    messageTimestamp.textContent = formattedDate;
+    wrapperDiv.appendChild(messageTimestamp);
+    
+    assistantMessage.appendChild(wrapperDiv);
+    
         // Add message to the UI
         this.messagesContainer.appendChild(assistantMessage);
         
@@ -414,124 +435,192 @@ class ChatInterface {
         // Prepare content div for streaming
         const contentDiv = document.createElement('div');
         contentDiv.className = 'message-content';
-        contentDiv.innerHTML = `<p></p>`;
+        const mainContentDiv = document.createElement('div');
+        contentDiv.appendChild(mainContentDiv);
         
         let startTime = Date.now();
         let accumulatedText = '';
-        
-        // Prepare fetch request to the API
-        const apiEndpoint = `${this.API_BASE_URL}/api/interact`;
-        
-        // Extract text from attachments
-        const allAttachments = window.pendingAttachments || [];
-        const attachmentTexts = allAttachments.map(a => a.text);
-        
-        // Prepare request body
-        const requestBody = {
-            message: userInput,
-            attachments: attachmentTexts,
-            stream: true,
-            tools: true
-        };
-        
-        // Add transcript ID if we have one
-        if (this.currentTranscriptId) {
-            requestBody.transcript_id = this.currentTranscriptId;
-        }
-        
-        // Clear file attachments after sending
-        window.pendingAttachments = [];
-        updateFileAttachments();
+        let toolCallInProgress = false;
+        let currentToolName = '';
+        let hasStartedStreaming = false;
+        let shouldSaveToTranscript = true;
         
         try {
+            // Prepare fetch request to the API
+            const apiEndpoint = `${this.API_BASE_URL}/api/interact`;
+            
+            // Extract text from attachments
+            const allAttachments = window.pendingAttachments || [];
+            const attachmentTexts = allAttachments.map(a => a.text);
+            
+            // Prepare request body
+            const requestBody = {
+                message: userInput,
+                attachments: attachmentTexts,
+                stream: true,
+                tools: true
+            };
+            
+            // Add transcript ID if we have one
+            if (this.currentTranscriptId) {
+                requestBody.transcript_id = this.currentTranscriptId;
+            }
+            
+            // Clear file attachments after sending
+            window.pendingAttachments = [];
+            updateFileAttachments();
+            
             const response = await fetch(apiEndpoint, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'text/plain'
+                    'Content-Type': 'application/json'
                 },
                 body: JSON.stringify(requestBody)
             });
             
             if (!response.ok) {
-                throw new Error(`API error: ${response.status} ${response.statusText}`);
+                throw new Error(`Server returned ${response.status}: ${response.statusText}`);
             }
             
             const reader = response.body.getReader();
+            const decoder = new TextDecoder();
             
             while (true) {
                 const { done, value } = await reader.read();
+                
                 if (done) {
-                    // Save the final message to transcript
-                    this.messages.push({ 
-                        role: 'assistant', 
-                        content: accumulatedText,
-                        timestamp: startTime
-                    });
-                    
-                    // Save to transcript if we have an ID
-                    if (this.currentTranscriptId) {
-                        this.saveMessageToTranscript('assistant', accumulatedText, startTime);
+                    // Remove loading indicator if still present
+                    if (wrapperDiv.contains(loadingDiv)) {
+                        wrapperDiv.removeChild(loadingDiv);
                     }
                     
-                    // Add timestamp to message if enabled
-                    if (this.showTimestamps) {
-                        const timestampDiv = document.createElement('div');
-                        timestampDiv.className = 'message-timestamp';
-                        const date = new Date(startTime);
-                        timestampDiv.textContent = date.toLocaleTimeString();
-                        wrapperDiv.appendChild(timestampDiv);
+                    // Add the final content div if not already added
+                    if (!wrapperDiv.contains(contentDiv)) {
+                        wrapperDiv.appendChild(contentDiv);
                     }
-
-                    // Re-enable send button after response is complete
+                    
+                    // Make sure timestamp is visible
+                    const existingTimestamp = wrapperDiv.querySelector('.message-timestamp');
+                    if (!existingTimestamp) {
+                        // Add timestamp if not already present
+                        const messageTimestamp = document.createElement('div');
+                        messageTimestamp.className = 'message-timestamp';
+                        const msgDate = new Date();
+                        const formattedDate = msgDate.toLocaleString(undefined, {
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                        });
+                        messageTimestamp.textContent = formattedDate;
+                        wrapperDiv.appendChild(messageTimestamp);
+                    }
+                    
+                    // Save the assistant's complete response to the transcript if needed
+                    if (this.currentTranscriptId && shouldSaveToTranscript) {
+                        // Check if this exact response is already in the transcript
+                        const existingAssistantMessage = this.messages.find(msg => 
+                            msg.role === 'assistant' && msg.content === accumulatedText
+                        );
+                        
+                        if (!existingAssistantMessage) {
+                            // Update messages array with the assistant's message
+                            this.messages.push({
+                                role: 'assistant',
+                                content: accumulatedText,
+                                timestamp: Date.now()
+                            });
+                            
+                            await this.saveMessageToTranscript('assistant', accumulatedText);
+                        }
+                    }
+                    
+                    // Reset waiting flag and re-enable send button
                     this.isWaitingForResponse = false;
                     document.getElementById('send-button').disabled = false;
                     
+                    // Ensure the final message is visible
+                    this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
                     break;
                 }
                 
-                const chunk = new TextDecoder().decode(value);
+                // Decode and accumulate the text
+                const chunk = decoder.decode(value, { stream: true });
                 
-                // Check if this is a tool call notification
-                if (chunk.startsWith('{"type":"tool_call"') || chunk.startsWith('{"type": "tool_call"')) {
-                    try {
-                        const toolCallData = JSON.parse(chunk);
-                        if (toolCallData.type === 'tool_call') {
-                            if (toolCallData.status === 'started') {
-                                // Update loading text to show tool name
-                                const loadingText = loadingDiv.querySelector('.loading-text');
-                                if (loadingText) {
-                                    loadingText.textContent = `Running ${toolCallData.tool_name}...`;
-                                }
-                                // Ensure the tool call message is visible
-                                this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
-                            } else if (toolCallData.status === 'completed') {
-                                // Reset loading text
-                                const loadingText = loadingDiv.querySelector('.loading-text');
-                                if (loadingText) {
-                                    loadingText.textContent = 'Thinking';
-                                }
-                                // Ensure the message is still visible
-                                this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+                // Check for tool call notifications
+                try {
+                    const notification = JSON.parse(chunk);
+                    if (notification.type === 'tool_call') {
+                        if (notification.status === 'started') {
+                            toolCallInProgress = true;
+                            currentToolName = notification.tool_name;
+                            // Update loading text to show tool execution
+                            if (wrapperDiv.contains(loadingDiv)) {
+                                loadingDiv.innerHTML = `
+                                    <div class="loading-text">Running ${currentToolName}</div>
+                                    <div class="loading-dots">
+                                        <span></span>
+                                        <span></span>
+                                        <span></span>
+                                    </div>
+                                `;
                             }
-                            continue; // Skip adding this chunk to accumulatedText
+                            continue;
+                        } else if (notification.status === 'completed') {
+                            toolCallInProgress = false;
+                            currentToolName = '';
+                            // Update loading text back to thinking
+                            if (wrapperDiv.contains(loadingDiv)) {
+                                loadingDiv.innerHTML = `
+                                    <div class="loading-text">Thinking</div>
+                                    <div class="loading-dots">
+                                        <span></span>
+                                        <span></span>
+                                        <span></span>
+                                    </div>
+                                `;
+                            }
+                            continue;
                         }
-                    } catch (e) {
-                        // If parsing fails, treat as normal content
                     }
-                }
-                
-                // Only add non-tool-call chunks to accumulatedText
-                accumulatedText += chunk;
-                
-                // Remove loading div if we have content
-                if (accumulatedText.trim() && wrapperDiv.contains(loadingDiv)) {
-                    wrapperDiv.removeChild(loadingDiv);
-                    wrapperDiv.appendChild(contentDiv);
-                }
-                
-                // Render markdown if available
-                if (window.markdownit) {
+                } catch (e) {
+                    // Not a JSON notification, treat as normal text
+                    accumulatedText += chunk;
+                    
+                    // If this is the first content chunk, remove the loading indicator
+                    if (!hasStartedStreaming) {
+                        hasStartedStreaming = true;
+                        if (wrapperDiv.contains(loadingDiv)) {
+                            wrapperDiv.removeChild(loadingDiv);
+                        }
+                        wrapperDiv.appendChild(contentDiv);
+                        
+                        // Make sure timestamp is visible after removing loading indicator
+                        const existingTimestamp = wrapperDiv.querySelector('.message-timestamp');
+                        if (existingTimestamp) {
+                            // Move the timestamp to the end if it exists
+                            wrapperDiv.appendChild(existingTimestamp);
+                        }
+                    }
+                    
+                    // Process the content to handle tool results
+                    const parts = accumulatedText.split(/(Tool Results from [^:]+:)/);
+                    let mainContent = '';
+                    let toolResults = [];
+                    
+                    for (let i = 0; i < parts.length; i++) {
+                        if (i % 2 === 0) {
+                            mainContent += parts[i];
+                        } else {
+                            toolResults.push({
+                                header: parts[i],
+                                content: parts[i + 1] || ''
+                            });
+                            i++; // Skip the content part as we've already processed it
+                        }
+                    }
+                    
+                    // Initialize markdown-it
                     const md = window.markdownit({
                         html: false,
                         linkify: true,
@@ -550,14 +639,52 @@ class ChatInterface {
                     if (window.markdownitEmoji) md.use(window.markdownitEmoji);
                     if (window.markdownitTaskLists) md.use(window.markdownitTaskLists);
                     
-                    contentDiv.innerHTML = md.render(accumulatedText);
-                } else {
-                    // Fallback to simple rendering
-                    contentDiv.innerHTML = `<p>${accumulatedText}</p>`;
+                    // Update the main content in real-time
+                    mainContentDiv.innerHTML = md.render(mainContent);
+                    
+                    // Handle tool results if any
+                    if (toolResults.length > 0) {
+                        // Remove existing tool results if any
+                        const existingToggle = contentDiv.querySelector('.tool-results-toggle');
+                        const existingResults = contentDiv.querySelector('.tool-results-container');
+                        if (existingToggle) contentDiv.removeChild(existingToggle);
+                        if (existingResults) contentDiv.removeChild(existingResults);
+                        
+                        // Add new tool results
+                        const toggleLink = document.createElement('a');
+                        toggleLink.className = 'tool-results-toggle';
+                        toggleLink.textContent = `Tool Results (${toolResults.length})`;
+                        toggleLink.onclick = function(e) {
+                            e.preventDefault();
+                            const container = this.nextElementSibling;
+                            container.classList.toggle('expanded');
+                            this.classList.toggle('expanded');
+                        };
+                        contentDiv.appendChild(toggleLink);
+                        
+                        const resultsContainer = document.createElement('div');
+                        resultsContainer.className = 'tool-results-container';
+                        
+                        toolResults.forEach(result => {
+                            const resultDiv = document.createElement('div');
+                            resultDiv.className = 'tool-result';
+                            
+                            const content = document.createElement('textarea');
+                            content.className = 'tool-result-content';
+                            content.value = result.content;
+                            content.readOnly = true;
+                            content.rows = 8; // Initial height
+                            
+                            resultDiv.appendChild(content);
+                            resultsContainer.appendChild(resultDiv);
+                        });
+                        
+                        contentDiv.appendChild(resultsContainer);
+                    }
+                    
+                    // Scroll to bottom after each update
+                    this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
                 }
-                
-                // Scroll to bottom after each update
-                this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
             }
         } catch (error) {
             console.error('Error sending message:', error);
@@ -572,6 +699,10 @@ class ChatInterface {
                 wrapperDiv.removeChild(loadingDiv);
             }
             wrapperDiv.appendChild(errorDiv);
+            
+            // Reset waiting flag and re-enable send button
+            this.isWaitingForResponse = false;
+            document.getElementById('send-button').disabled = false;
             
             // Ensure error message is visible
             this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
@@ -690,7 +821,12 @@ class ChatInterface {
                 this.createNewTranscript();
             }
             
-            showNotification(`Renamed to "${newName}"`, 2000);
+            // Use the global showNotification function
+            if (window.showNotification) {
+                window.showNotification(`Renamed to "${newName}"`, 2000);
+            } else {
+                console.log(`Renamed to "${newName}"`);
+            }
             
             // Notify transcript manager to refresh
             if (window.transcriptManager) {
@@ -731,65 +867,95 @@ class ChatInterface {
     }
 
     async updateTranscript() {
-        if (!this.currentTranscriptId) return;
+        if (!this.currentTranscriptId) {
+            console.warn('No current transcript ID, skipping update');
+            return;
+        }
 
         try {
-            // First get the current transcript to avoid overwriting any other changes
-            const getResponse = await fetch(`${this.API_BASE_URL}/api/transcripts/${this.currentTranscriptId}`, {
+            // Get the current transcript to avoid overwriting changes
+            const response = await fetch(`${this.API_BASE_URL}/api/transcripts/${this.currentTranscriptId}`, {
                 method: 'GET',
                 headers: {
-                    'Content-Type': 'application/json',
                     'Accept': 'application/json'
                 },
                 credentials: 'include'
             });
-            
-            if (!getResponse.ok) {
-                throw new Error(`Failed to get current transcript: ${getResponse.statusText}`);
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            if (!data.transcript) {
+                throw new Error('Invalid transcript data received');
             }
             
-            const currentData = await getResponse.json();
-            const transcript = currentData.transcript;
-            
-            // Update messages array
-            transcript.messages = this.messages;
-            
-            // Update the transcript
+            // Instead of trying to extract messages from DOM, use the internal messages array
+            // which is more reliable and already has the correct structure
+            const currentMessages = this.messages || [];
+
+            // Update the transcript with the messages array
             const updateResponse = await fetch(`${this.API_BASE_URL}/api/transcripts/${this.currentTranscriptId}`, {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',
                     'Accept': 'application/json'
                 },
+                credentials: 'include',
                 body: JSON.stringify({
-                    messages: this.messages
-                }),
-                credentials: 'include'
+                    messages: currentMessages
+                })
             });
 
             if (!updateResponse.ok) {
-                console.error(`Failed to update transcript: ${updateResponse.statusText}`);
-                // Try to save to localStorage as fallback
-                this.saveTranscriptToLocalStorage();
-                return;
+                throw new Error(`HTTP error! status: ${updateResponse.status}`);
             }
-            
-            // Also update in localStorage for redundancy
+
+            // Save to localStorage for redundancy
             this.saveTranscriptToLocalStorage();
+
         } catch (error) {
             console.error('Error updating transcript:', error);
-            // Attempt to save to localStorage as fallback
-            this.saveTranscriptToLocalStorage();
+            // Use the global showNotification function instead of this.showNotification
+            window.showNotification ? window.showNotification('Failed to update transcript', 3000) : 
+                console.error('Could not show notification: showNotification not available');
         }
     }
     
     addMessage(role, content, timestamp = null) {
         const messagesContainer = this.messagesContainer;
-        if (!messagesContainer) return;
+        if (!messagesContainer) {
+            console.error('Messages container not found');
+            return null;
+        }
+        
+        // Check if this is a duplicate of the last message (prevent duplicates)
+        if (this.messages.length > 0) {
+            const lastMessage = this.messages[this.messages.length - 1];
+            if (lastMessage.role === role && lastMessage.content === content) {
+                console.log('Duplicate message detected, skipping...');
+                return null;
+            }
+        }
+        
+        // Add message to internal array
+        const msgTimestamp = timestamp || Date.now();
+        this.messages.push({
+            role: role,
+            content: content,
+            timestamp: msgTimestamp
+        });
+
+        // Set the hasActivity flag to true when a message is added
+        if (!this.hasActivity) {
+            this.hasActivity = true;
+        }
         
         // Create message element
         const messageElement = document.createElement('div');
         messageElement.className = `chat-message ${role}`;
+        messageElement.dataset.timestamp = msgTimestamp;
         
         // Create avatar for user or assistant
         const avatar = document.createElement('div');
@@ -803,105 +969,104 @@ class ChatInterface {
         
         messageElement.appendChild(avatar);
         
-        // Create content wrapper
-        const messageContentWrapper = document.createElement('div');
-        messageContentWrapper.className = 'message-content-wrapper';
+        // Create message content wrapper
+        const wrapperDiv = document.createElement('div');
+        wrapperDiv.className = 'message-content-wrapper';
         
-        // Create the message content
+        // Create message content
         const messageContent = document.createElement('div');
         messageContent.className = 'message-content';
         
-        // Check if content is a tool call notification
-        if (role === 'assistant' && content.startsWith('{"type":"tool_call"') || content.startsWith('{"type": "tool_call"')) {
-            try {
-                const toolCallData = JSON.parse(content);
-                
-                if (toolCallData.type === 'tool_call') {
-                    // Tool call notification
-                    if (toolCallData.status === 'started') {
-                        // Create loading animation for tool call
-                        messageContent.innerHTML = `
-                            <div class="loading-content">
-                                <span class="loading-text">${toolCallData.tool_name}</span>
-                                <div class="loading-dots">
-                                    <span></span>
-                                    <span></span>
-                                    <span></span>
-                                </div>
-                            </div>
-                        `;
-                        messageElement.id = `tool-call-${toolCallData.tool_name}`;
-                    } else if (toolCallData.status === 'completed') {
-                        // Remove the temporary loading message for this tool
-                        const existingToolCall = document.getElementById(`tool-call-${toolCallData.tool_name}`);
-                        if (existingToolCall) {
-                            existingToolCall.remove();
-                        }
-                        // Don't add a completed message to the chat
-                        return;
-                    }
+        if (role === 'assistant') {
+            // Process the content to handle tool results
+            const parts = content.split(/(Tool Results from [^:]+:)/);
+            let mainContent = '';
+            let toolResults = [];
+            
+            for (let i = 0; i < parts.length; i++) {
+                if (i % 2 === 0) {
+                    mainContent += parts[i];
                 } else {
-                    // Not a valid tool call, treat as normal content
-                    messageContent.innerHTML = `<p>${content}</p>`;
-                }
-            } catch (e) {
-                // If parsing fails, just render the content as normal
-                messageContent.innerHTML = `<p>${content}</p>`;
-            }
-        } else if (role === 'assistant') {
-            try {
-                // Use markdown-it for rendering if available
-                if (window.markdownit) {
-                    const md = window.markdownit({
-                        html: false,
-                        linkify: true,
-                        typographer: true,
-                        highlight: function (str, lang) {
-                            if (lang && window.hljs && window.hljs.getLanguage(lang)) {
-                                try {
-                                    return window.hljs.highlight(str, { language: lang }).value;
-                                } catch (__) {}
-                            }
-                            return ''; // Use external default escaping
-                        }
+                    toolResults.push({
+                        header: parts[i],
+                        content: parts[i + 1] || ''
                     });
-                    
-                    // Add plugins if available
-                    if (window.markdownitEmoji) md.use(window.markdownitEmoji);
-                    if (window.markdownitTaskLists) md.use(window.markdownitTaskLists);
-                    
-                    messageContent.innerHTML = md.render(content);
-                } else {
-                    // Fallback to simple rendering
-                    messageContent.innerHTML = `<p>${content}</p>`;
+                    i++; // Skip the content part as we've already processed it
                 }
-            } catch (error) {
-                console.error('Error rendering markdown:', error);
-                messageContent.innerHTML = `<p>${content}</p>`;
-            }
-        } else {
-            // For user messages, just use text content with line breaks
-            // Remove any attachment content (text after '\n\nAttached files:')
-            let displayContent = content;
-            const attachmentIndex = content.indexOf('\n\nAttached files:');
-            if (attachmentIndex > -1) {
-                displayContent = content.substring(0, attachmentIndex);
             }
             
-            const formattedContent = displayContent.replace(/\n/g, '<br>');
-            messageContent.innerHTML = `<p>${formattedContent}</p>`;
+            // Initialize markdown-it
+            const md = window.markdownit({
+                html: false,
+                linkify: true,
+                typographer: true,
+                highlight: function (str, lang) {
+                    if (lang && window.hljs && window.hljs.getLanguage(lang)) {
+                        try {
+                            return window.hljs.highlight(str, { language: lang }).value;
+                        } catch (__) {}
+                    }
+                    return ''; // Use external default escaping
+                }
+            });
+            
+            // Add plugins if available
+            if (window.markdownitEmoji) md.use(window.markdownitEmoji);
+            if (window.markdownitTaskLists) md.use(window.markdownitTaskLists);
+            
+            // Render the main content
+            const mainContentDiv = document.createElement('div');
+            mainContentDiv.innerHTML = md.render(mainContent);
+            messageContent.appendChild(mainContentDiv);
+            
+            // Add tool results if any
+            if (toolResults.length > 0) {
+                const toggleLink = document.createElement('a');
+                toggleLink.className = 'tool-results-toggle';
+                toggleLink.textContent = `Tool Results (${toolResults.length})`;
+                toggleLink.onclick = function(e) {
+                    e.preventDefault();
+                    const container = this.nextElementSibling;
+                    container.classList.toggle('expanded');
+                    this.classList.toggle('expanded');
+                };
+                messageContent.appendChild(toggleLink);
+                
+                const resultsContainer = document.createElement('div');
+                resultsContainer.className = 'tool-results-container';
+                
+                toolResults.forEach(result => {
+                    const resultDiv = document.createElement('div');
+                    resultDiv.className = 'tool-result';
+                    
+                    const content = document.createElement('textarea');
+                    content.className = 'tool-result-content';
+                    content.value = result.content;
+                    content.readOnly = true;
+                    content.rows = 8;
+                    
+                    resultDiv.appendChild(content);
+                    resultsContainer.appendChild(resultDiv);
+                });
+                
+                messageContent.appendChild(resultsContainer);
+            }
+        } else {
+            // User message or other role
+            const md = window.markdownit({
+                html: false,
+                linkify: true,
+                typographer: true
+            });
+            messageContent.innerHTML = md.render(content);
         }
         
-        // Add message content to wrapper
-        messageContentWrapper.appendChild(messageContent);
+        wrapperDiv.appendChild(messageContent);
         
         // Add timestamp
         const messageTimestamp = document.createElement('div');
         messageTimestamp.className = 'message-timestamp';
         
-        // Use provided timestamp or current time
-        const msgTimestamp = timestamp || Date.now();
-         
         // Format the timestamp
         const date = new Date(msgTimestamp);
         const formattedDate = date.toLocaleString(undefined, {
@@ -910,33 +1075,23 @@ class ChatInterface {
             hour: '2-digit',
             minute: '2-digit'
         });
-         
-        messageTimestamp.textContent = formattedDate;
-         
-        // Add timestamp to wrapper
-        messageContentWrapper.appendChild(messageTimestamp);
-         
-        // Add wrapper to message element
-        messageElement.appendChild(messageContentWrapper);
         
-        // Add to messages container
+        messageTimestamp.textContent = formattedDate;
+        
+        // Add timestamp to wrapper
+        wrapperDiv.appendChild(messageTimestamp);
+        
+        // Add wrapper to message element
+        messageElement.appendChild(wrapperDiv);
+        
+        // Add message to UI
         messagesContainer.appendChild(messageElement);
         
-        // Scroll to the bottom smoothly
+        // Scroll to bottom
         this.smoothScrollToBottom();
         
-        // Add to message history with timestamp
-        this.messages.push({ 
-            role, 
-            content,
-            timestamp: msgTimestamp
-        });
-         
-        // Mark that we have activity
-        this.hasActivity = true;
-         
-        // Save to transcript if we have an ID
-        if (this.currentTranscriptId) {
+        // Save to transcript if we have an ID and saving is not temporarily disabled
+        if (this.currentTranscriptId && this.saveMessageToTranscript !== (() => Promise.resolve(true))) {
             // Using setTimeout to make it non-blocking
             setTimeout(() => {
                 try {
@@ -949,7 +1104,7 @@ class ChatInterface {
                     this.saveTranscriptToLocalStorage();
                 }
             }, 0);
-        } else if (this.hasActivity && role === 'user') {
+        } else if (this.hasActivity && role === 'user' && !this.currentTranscriptId) {
             // If the first user message is being added and we don't have a transcript yet,
             // create one and then save this message to it
             setTimeout(async () => {
@@ -1155,25 +1310,92 @@ document.addEventListener('DOMContentLoaded', () => {
     // Add message to chat interface
     function addMessage(text, sender, isError = false) {
         const messageDiv = document.createElement('div');
-        messageDiv.className = `message ${sender}${isError ? ' error' : ''}`;
+        messageDiv.className = `chat-message ${sender}${isError ? ' error' : ''}`;
         
-        if (sender === 'assistant' && !isError) {
-            // Create a container for the markdown content
-            const contentDiv = document.createElement('div');
-            contentDiv.className = 'markdown-content';
-            contentDiv.innerHTML = md.render(text);
-            messageDiv.appendChild(contentDiv);
-
-            // Highlight code blocks
-            messageDiv.querySelectorAll('pre code').forEach((block) => {
-                hljs.highlightBlock(block);
-            });
-        } else {
-            messageDiv.textContent = text;
+        const contentWrapper = document.createElement('div');
+        contentWrapper.className = 'message-content-wrapper';
+        
+        const messageContent = document.createElement('div');
+        messageContent.className = 'message-content';
+        
+        // Initialize markdown-it
+        const md = window.markdownit({
+            html: false,
+            linkify: true,
+            typographer: true,
+            highlight: function (str, lang) {
+                if (lang && window.hljs && window.hljs.getLanguage(lang)) {
+                    try {
+                        return window.hljs.highlight(str, { language: lang }).value;
+                    } catch (__) {}
+                }
+                return ''; // Use external default escaping
+            }
+        });
+        
+        // Add plugins if available
+        if (window.markdownitEmoji) md.use(window.markdownitEmoji);
+        if (window.markdownitTaskLists) md.use(window.markdownitTaskLists);
+        
+        // Process the message content to handle tool results
+        const parts = text.split(/(Tool Results from [^:]+:)/);
+        let mainContent = '';
+        let toolResults = [];
+        
+        for (let i = 0; i < parts.length; i++) {
+            if (i % 2 === 0) {
+                mainContent += parts[i];
+            } else {
+                toolResults.push({
+                    header: parts[i],
+                    content: parts[i + 1] || ''
+                });
+                i++; // Skip the content part as we've already processed it
+            }
         }
-
-        chatMessages.appendChild(messageDiv);
-        chatMessages.scrollTop = chatMessages.scrollHeight;
+        
+        // Render the main content
+        messageContent.innerHTML = md.render(mainContent);
+        
+        // Add tool results if any
+        if (toolResults.length > 0) {
+            const toggleLink = document.createElement('a');
+            toggleLink.className = 'tool-results-toggle';
+            toggleLink.textContent = `Tool Results (${toolResults.length})`;
+            toggleLink.onclick = function(e) {
+                e.preventDefault();
+                const container = this.nextElementSibling;
+                container.classList.toggle('expanded');
+                this.classList.toggle('expanded');
+            };
+            messageContent.appendChild(toggleLink);
+            
+            const resultsContainer = document.createElement('div');
+            resultsContainer.className = 'tool-results-container';
+            
+            toolResults.forEach(result => {
+                const resultDiv = document.createElement('div');
+                resultDiv.className = 'tool-result';
+                
+                const content = document.createElement('textarea');
+                content.className = 'tool-result-content';
+                content.value = result.content;
+                content.readOnly = true;
+                content.rows = 8; // Initial height
+                
+                resultDiv.appendChild(content);
+                resultsContainer.appendChild(resultDiv);
+            });
+            
+            messageContent.appendChild(resultsContainer);
+        }
+        
+        contentWrapper.appendChild(messageContent);
+        messageDiv.appendChild(contentWrapper);
+        
+        const messagesContainer = document.querySelector('.chat-messages');
+        messagesContainer.appendChild(messageDiv);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
 
     // Show loading indicator
@@ -1436,9 +1658,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } else if (fileInfo.preview) {
                 html += `
                     <div class="preview-content">
-                        <div style="max-height: 400px; overflow-y: auto; white-space: pre-wrap; font-family: monospace; padding: 10px; background: #f5f5f5; border-radius: 4px;">
-                            ${fileInfo.preview}
-                        </div>
+                        ${fileInfo.preview}
                     </div>
                 `;
             }
@@ -3253,17 +3473,22 @@ document.addEventListener('DOMContentLoaded', () => {
             const errorHover = '#ff6b6b'; // Slightly lighter red for hover
             const highlightColor = '#ffd700'; // Yellow for highlights
             const highlightText = '#000000'; // Black text for highlights
-            const highlightBg = 'rgba(255, 215, 0, 0.2)'; // Yellow with transparency
+            const highlightBg = 'rgba(255, 215, 0, 0.2)';
             
             return {
                 '--bg-primary': bgPrimary,
+                '--bg-primary-rgb': hexToRgb(bgPrimary),
                 '--bg-secondary': bgSecondary,
+                '--bg-secondary-rgb': hexToRgb(bgSecondary),
                 '--bg-tertiary': bgTertiary,
+                '--bg-tertiary-rgb': hexToRgb(bgTertiary),
                 '--text-primary': textPrimary,
                 '--text-secondary': textSecondary,
                 '--border-color': borderColor,
                 '--accent-color': primaryColor,
-                '--hover-color': hoverColor,
+                '--accent-color-rgb': hexToRgb(primaryColor),
+                '--accent-color-transparent': `rgba(${hexToRgb(primaryColor)}, 0.1)`,
+                '--hover-color': `rgba(${hexToRgb(primaryColor)}, 0.2)`,
                 '--user-message-bg': hoverColor,
                 '--assistant-message-bg': bgSecondary,
                 '--error-color': errorColor,
@@ -3275,13 +3500,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 '--button-text': textSecondary,
                 '--button-hover-text': textPrimary,
                 '--focus-color': primaryColor,
-                '--selection-bg': `${primaryColor}1a`,
-                '--selection-border': `${primaryColor}4d`,
+                '--selection-bg': `rgba(${hexToRgb(primaryColor)}, 0.1)`,
+                '--selection-border': `rgba(${hexToRgb(primaryColor)}, 0.3)`,
                 '--highlight-color': highlightColor,
                 '--highlight-text': highlightText,
                 '--highlight-bg': highlightBg,
                 '--primary-color': primaryColor,
-                '--accent-hover': buttonHoverBg
+                '--accent-hover': buttonHoverBg,
+                '--hover-bg': `rgba(${hexToRgb(primaryColor)}, 0.1)`,
+                '--selected-bg': `rgba(${hexToRgb(primaryColor)}, 0.1)`
             };
         } else {
             // Light theme generation
@@ -3300,17 +3527,22 @@ document.addEventListener('DOMContentLoaded', () => {
             const errorHover = '#ff6b6b'; // Slightly lighter red for hover
             const highlightColor = '#ffd700'; // Yellow for highlights
             const highlightText = '#000000'; // Black text for highlights
-            const highlightBg = 'rgba(255, 215, 0, 0.2)'; // Yellow with transparency
+            const highlightBg = 'rgba(255, 215, 0, 0.2)';
             
             return {
                 '--bg-primary': bgPrimary,
+                '--bg-primary-rgb': hexToRgb(bgPrimary),
                 '--bg-secondary': bgSecondary,
+                '--bg-secondary-rgb': hexToRgb(bgSecondary),
                 '--bg-tertiary': bgTertiary,
+                '--bg-tertiary-rgb': hexToRgb(bgTertiary),
                 '--text-primary': textPrimary,
                 '--text-secondary': textSecondary,
                 '--border-color': borderColor,
                 '--accent-color': primaryColor,
-                '--hover-color': hoverColor,
+                '--accent-color-rgb': hexToRgb(primaryColor),
+                '--accent-color-transparent': `rgba(${hexToRgb(primaryColor)}, 0.1)`,
+                '--hover-color': `rgba(${hexToRgb(primaryColor)}, 0.2)`,
                 '--user-message-bg': hoverColor,
                 '--assistant-message-bg': bgSecondary,
                 '--error-color': errorColor,
@@ -3322,15 +3554,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 '--button-text': textSecondary,
                 '--button-hover-text': textPrimary,
                 '--focus-color': primaryColor,
-                '--selection-bg': `${primaryColor}1a`,
-                '--selection-border': `${primaryColor}4d`,
+                '--selection-bg': `rgba(${hexToRgb(primaryColor)}, 0.1)`,
+                '--selection-border': `rgba(${hexToRgb(primaryColor)}, 0.3)`,
                 '--highlight-color': highlightColor,
                 '--highlight-text': highlightText,
                 '--highlight-bg': highlightBg,
                 '--primary-color': primaryColor,
-                '--accent-hover': buttonHoverBg
+                '--accent-hover': buttonHoverBg,
+                '--hover-bg': `rgba(${hexToRgb(primaryColor)}, 0.1)`,
+                '--selected-bg': `rgba(${hexToRgb(primaryColor)}, 0.1)`
             };
         }
+    }
+    
+    // Helper to convert hex to rgb
+    function hexToRgb(hex) {
+        hex = hex.replace('#', '');
+        const r = parseInt(hex.substring(0, 2), 16);
+        const g = parseInt(hex.substring(2, 4), 16);
+        const b = parseInt(hex.substring(4, 6), 16);
+        return `${r}, ${g}, ${b}`;
     }
 
     // Theme color picker
@@ -3378,12 +3621,29 @@ document.addEventListener('DOMContentLoaded', () => {
     // Reset theme button
     const resetThemeButton = document.getElementById('reset-theme');
     resetThemeButton.addEventListener('click', function() {
+        // Clear custom themes
         currentCustomThemes = { dark: null, light: null };
+        
+        // Get current theme mode
         const isDark = root.getAttribute('data-theme') === 'dark';
-        applyTheme(defaultThemes[isDark ? 'dark' : 'light']);
+        
+        // Reset color picker to default
         themeColorPicker.value = isDark ? '#2f81f7' : '#0969da';
+        
         // Clear saved theme color from localStorage
         localStorage.removeItem('themeColor');
+        
+        // Apply default theme
+        const defaultTheme = defaultThemes[isDark ? 'dark' : 'light'];
+        applyTheme(defaultTheme);
+        
+        // Force a re-render of all elements by temporarily toggling the theme
+        root.setAttribute('data-theme', isDark ? 'light' : 'dark');
+        setTimeout(() => {
+            root.setAttribute('data-theme', isDark ? 'dark' : 'light');
+            applyTheme(defaultTheme);
+        }, 0);
+        
         showNotification('Theme reset to defaults');
     });
 
@@ -3468,7 +3728,12 @@ document.addEventListener('DOMContentLoaded', () => {
             } 
             // For text files, display content with proper formatting
             else if (fileData.preview_type === 'text') {
-                contentDiv.textContent = fileData.preview || '';
+                // Check if content is HTML
+                if (fileData.preview && /<[^>]+>/i.test(fileData.preview)) {
+                    contentDiv.innerHTML = fileData.preview;
+                } else {
+                    contentDiv.textContent = fileData.preview || '';
+                }
             } else {
                 contentDiv.textContent = 'Preview not available for this file type';
             }
@@ -3540,9 +3805,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
             
-            // Insert search bar before content
+            // Insert search bar after content
             const contentContainer = reader.querySelector('.window-manager-content');
-            contentContainer.parentNode.insertBefore(searchBar, contentContainer);
+            contentContainer.parentNode.appendChild(searchBar);
             
             // Add to tracking map with file path as key
             documentReaders.set(path, reader);
@@ -3604,44 +3869,102 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             
             function highlightMatches() {
-                // Get the original text content
-                const originalText = contentDiv.dataset.originalContent || '';
+                // Get the original content
+                const originalContent = contentDiv.dataset.originalContent || '';
                 
                 // Create a temporary container to hold the highlighted content
                 const tempContainer = document.createElement('div');
                 
-                // Process the text in chunks to preserve structure
-                let lastIndex = 0;
-                let offset = 0;
+                // Check if content is HTML
+                const isHTML = /<[^>]+>/i.test(originalContent);
                 
-                // Sort matches by start position to handle overlapping matches
-                const sortedMatches = [...matches].sort((a, b) => a.start - b.start);
-                
-                // Add text chunks and highlights
-                for (const match of sortedMatches) {
-                    // Add text before the match
-                    if (match.start > lastIndex) {
-                        const beforeText = originalText.slice(lastIndex, match.start);
-                        tempContainer.appendChild(document.createTextNode(beforeText));
+                if (isHTML) {
+                    // For HTML content, preserve the structure
+                    tempContainer.innerHTML = originalContent;
+                    
+                    // Get all text nodes in the document
+                    const walker = document.createTreeWalker(
+                        tempContainer,
+                        NodeFilter.SHOW_TEXT,
+                        null,
+                        false
+                    );
+                    
+                    let node;
+                    const textNodes = [];
+                    while (node = walker.nextNode()) {
+                        textNodes.push(node);
                     }
                     
-                    // Add the highlighted match
-                    const highlight = document.createElement('span');
-                    highlight.className = `search-highlight ${match === matches[currentMatchIndex] ? 'active' : ''}`;
-                    highlight.textContent = match.text;
-                    tempContainer.appendChild(highlight);
+                    // Process each text node
+                    for (const textNode of textNodes) {
+                        const text = textNode.textContent;
+                        let lastIndex = 0;
+                        let newContent = document.createDocumentFragment();
+                        
+                        // Sort matches by start position to handle overlapping matches
+                        const sortedMatches = [...matches].sort((a, b) => a.start - b.start);
+                        
+                        for (const match of sortedMatches) {
+                            // Add text before the match
+                            if (match.start > lastIndex) {
+                                newContent.appendChild(document.createTextNode(text.slice(lastIndex, match.start)));
+                            }
+                            
+                            // Add the highlighted match
+                            const highlight = document.createElement('span');
+                            highlight.className = `search-highlight ${match === matches[currentMatchIndex] ? 'active' : ''}`;
+                            highlight.textContent = match.text;
+                            newContent.appendChild(highlight);
+                            
+                            lastIndex = match.end;
+                        }
+                        
+                        // Add remaining text
+                        if (lastIndex < text.length) {
+                            newContent.appendChild(document.createTextNode(text.slice(lastIndex)));
+                        }
+                        
+                        // Replace the text node with the new content
+                        textNode.parentNode.replaceChild(newContent, textNode);
+                    }
                     
-                    lastIndex = match.end;
+                    // Update the content
+                    contentDiv.innerHTML = tempContainer.innerHTML;
+                } else {
+                    // For plain text content, use the existing highlighting logic
+                    let lastIndex = 0;
+                    let offset = 0;
+                    
+                    // Sort matches by start position to handle overlapping matches
+                    const sortedMatches = [...matches].sort((a, b) => a.start - b.start);
+                    
+                    // Add text chunks and highlights
+                    for (const match of sortedMatches) {
+                        // Add text before the match
+                        if (match.start > lastIndex) {
+                            const beforeText = originalContent.slice(lastIndex, match.start);
+                            tempContainer.appendChild(document.createTextNode(beforeText));
+                        }
+                        
+                        // Add the highlighted match
+                        const highlight = document.createElement('span');
+                        highlight.className = `search-highlight ${match === matches[currentMatchIndex] ? 'active' : ''}`;
+                        highlight.textContent = match.text;
+                        tempContainer.appendChild(highlight);
+                        
+                        lastIndex = match.end;
+                    }
+                    
+                    // Add remaining text
+                    if (lastIndex < originalContent.length) {
+                        tempContainer.appendChild(document.createTextNode(originalContent.slice(lastIndex)));
+                    }
+                    
+                    // Convert newlines to <br> tags while preserving the structure
+                    const finalContent = tempContainer.innerHTML.replace(/\n/g, '<br>');
+                    contentDiv.innerHTML = finalContent;
                 }
-                
-                // Add remaining text
-                if (lastIndex < originalText.length) {
-                    tempContainer.appendChild(document.createTextNode(originalText.slice(lastIndex)));
-                }
-                
-                // Convert newlines to <br> tags while preserving the structure
-                const finalContent = tempContainer.innerHTML.replace(/\n/g, '<br>');
-                contentDiv.innerHTML = finalContent;
                 
                 // Scroll to active match if exists
                 if (currentMatchIndex >= 0 && currentMatchIndex < matches.length) {

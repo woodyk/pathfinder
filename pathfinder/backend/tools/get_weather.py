@@ -5,7 +5,7 @@
 # Author: Wadih Khairallah
 # Description: 
 # Created: 2025-04-04 23:39:37
-# Modified: 2025-04-06 23:33:04
+# Modified: 2025-04-16 17:29:47
 
 import requests
 import json
@@ -99,24 +99,24 @@ def get_weather(location: str) -> str:
             }
         }
 
-        return json.dumps({
+        return {
             "success": True,
             "result": summary,
             "error": None
-        }, indent=2)
+        }
 
     except requests.RequestException as e:
-        return json.dumps({
+        return {
             "success": False,
             "result": None,
             "error": f"Request error: {str(e)}"
-        })
+        }
     except Exception as e:
-        return json.dumps({
+        return {
             "success": False,
             "result": None,
             "error": f"Unexpected error: {str(e)}"
-        })
+        }
 
 if __name__ == "__main__":
     city = input("Enter a location (e.g., 'Paris' or '37.77,-122.41'): ")

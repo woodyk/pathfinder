@@ -438,7 +438,8 @@ class Interactor:
                         notification = json.dumps({
                             "type": "tool_call",
                             "tool_name": name,
-                            "status": "completed"
+                            "status": "completed",
+                            "tool_result": result
                         })
                         output_callback(notification)
 

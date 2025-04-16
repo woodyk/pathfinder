@@ -109,7 +109,7 @@ class WindowManager {
         // Create minimized bar container
         const minimizedBar = document.createElement('div');
         minimizedBar.className = 'window-manager-minimized-bar';
-        minimizedBar.style.display = 'none'; // Hide initially until windows are minimized
+        minimizedBar.style.display = 'flex'; // Always show the bar
         
         document.body.appendChild(minimizedBar);
         
@@ -560,11 +560,8 @@ class WindowManager {
         // Remove from map
         this.minimizedWindows.delete(windowId);
         
-        // Hide the minimized bar if empty
-        if (this.minimizedWindows.size === 0) {
-            this.minimizedBar.style.display = 'none';
-            this.minimizedBar.classList.remove('reveal');
-        }
+        // Keep the minimized bar visible even when empty
+        this.minimizedBar.classList.remove('reveal');
     }
     
     /**
@@ -1472,40 +1469,54 @@ class WindowManager {
         const viewportWidth = window.innerWidth;
         const viewportHeight = window.innerHeight;
         
-        // Calculate a safe position ensuring the window is fully visible on screen
-        let restoreLeft, restoreTop;
-        
-        // Use target position if provided, otherwise use widget position
-        if (targetPosition) {
-            restoreLeft = targetPosition.x || targetPosition.left || widgetRect.left;
-            restoreTop = targetPosition.y || targetPosition.top || widgetRect.top;
-        } else {
-            restoreLeft = widgetRect.left;
-            restoreTop = widgetRect.top;
-        }
-        
-        // Ensure window is not positioned outside the viewport
-        // Leave at least 50px of the window visible on each edge
-        restoreLeft = Math.max(50 - windowWidth, Math.min(restoreLeft, viewportWidth - 50));
-        restoreTop = Math.max(0, Math.min(restoreTop, viewportHeight - 50));
-        
-        // If window would be mostly off-screen, center it instead
-        if (restoreLeft < 0 || restoreLeft > viewportWidth - 100 || 
-            restoreTop < 0 || restoreTop > viewportHeight - 100) {
-            restoreLeft = Math.max(0, Math.floor((viewportWidth - windowWidth) / 2));
-            restoreTop = Math.max(0, Math.floor((viewportHeight - windowHeight) / 2));
-        }
+        // Center the window in the viewport
+        const restoreLeft = Math.max(0, Math.floor((viewportWidth - windowWidth) / 2));
+        const restoreTop = Math.max(0, Math.floor((viewportHeight - windowHeight) / 2));
         
         // Position the window
         windowEl.style.left = `${restoreLeft}px`;
         windowEl.style.top = `${restoreTop}px`;
         windowEl.style.width = `${windowWidth}px`;
         windowEl.style.height = `${windowHeight}px`;
-        windowEl.style.display = 'block';
+        windowEl.style.display = 'flex';
         
         // Reset widget status in window manager
         windowEl._windowManager.isWidget = false;
         delete windowEl._windowManager.widgetElement;
+        
+        // Fix for document reader windows
+        if (windowEl.classList.contains('document-reader')) {
+            // Make sure search bar is properly positioned
+            const searchBar = windowEl.querySelector('.document-reader-search');
+            const contentContainer = windowEl.querySelector('.window-manager-content');
+            
+            // If search bar exists but is in the wrong place, reattach it
+            if (searchBar && contentContainer && contentContainer.parentNode) {
+                // Move search bar to the bottom of the window (after content)
+                contentContainer.parentNode.appendChild(searchBar);
+                
+                // Make sure search bar is visible
+                searchBar.style.display = 'flex';
+                
+                // Ensure content container has proper styling for scrolling
+                contentContainer.style.flex = '1';
+                contentContainer.style.overflowY = 'auto';
+            }
+            
+            // Fix any content styling
+            const documentContent = windowEl.querySelector('.document-reader-content');
+            if (documentContent) {
+                // Ensure content is scrollable
+                documentContent.style.overflow = 'auto';
+                
+                // If it's an image, make sure it's sized properly
+                const img = documentContent.querySelector('img');
+                if (img) {
+                    img.style.maxWidth = '100%';
+                    img.style.height = 'auto';
+                }
+            }
+        }
         
         // Create a visual effect for removal
         const ghostWidget = widget.cloneNode(true);
@@ -1781,7 +1792,14 @@ class WindowManager {
                     // For text content, get from the original content or dataset
                     const textContent = originalContent.dataset.originalContent || originalContent.textContent;
                     if (textContent) {
-                        widgetContent.textContent = textContent;
+                        // Check if content is HTML
+                        if (/<[^>]+>/i.test(textContent)) {
+                            // If it's HTML content, render it properly
+                            widgetContent.innerHTML = textContent;
+                        } else {
+                            // Otherwise treat as plain text
+                            widgetContent.textContent = textContent;
+                        }
                     }
                 }
             }

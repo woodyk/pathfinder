@@ -641,12 +641,78 @@ class TranscriptManager {
             contentDiv.className = 'message-content';
             
             if (message.role === 'assistant') {
-                // Use markdown rendering for assistant messages
-                if (window.markdownit) {
-                    const contentHtml = window.markdownit().render(message.content);
-                    contentDiv.innerHTML = contentHtml;
-                } else {
-                    contentDiv.innerHTML = `<p>${message.content}</p>`;
+                // Process the content to handle tool results
+                const parts = message.content.split(/(Tool Results from [^:]+:)/);
+                let mainContent = '';
+                let toolResults = [];
+                
+                for (let i = 0; i < parts.length; i++) {
+                    if (i % 2 === 0) {
+                        mainContent += parts[i];
+                    } else {
+                        toolResults.push({
+                            header: parts[i],
+                            content: parts[i + 1] || ''
+                        });
+                        i++; // Skip the content part as we've already processed it
+                    }
+                }
+                
+                // Initialize markdown-it
+                const md = window.markdownit({
+                    html: false,
+                    linkify: true,
+                    typographer: true,
+                    highlight: function (str, lang) {
+                        if (lang && window.hljs && window.hljs.getLanguage(lang)) {
+                            try {
+                                return window.hljs.highlight(str, { language: lang }).value;
+                            } catch (__) {}
+                        }
+                        return ''; // Use external default escaping
+                    }
+                });
+                
+                // Add plugins if available
+                if (window.markdownitEmoji) md.use(window.markdownitEmoji);
+                if (window.markdownitTaskLists) md.use(window.markdownitTaskLists);
+                
+                // Render the main content
+                const mainContentDiv = document.createElement('div');
+                mainContentDiv.innerHTML = md.render(mainContent);
+                contentDiv.appendChild(mainContentDiv);
+                
+                // Add tool results if any
+                if (toolResults.length > 0) {
+                    const toggleLink = document.createElement('a');
+                    toggleLink.className = 'tool-results-toggle';
+                    toggleLink.textContent = `Tool Results (${toolResults.length})`;
+                    toggleLink.onclick = function(e) {
+                        e.preventDefault();
+                        const container = this.nextElementSibling;
+                        container.classList.toggle('expanded');
+                        this.classList.toggle('expanded');
+                    };
+                    contentDiv.appendChild(toggleLink);
+                    
+                    const resultsContainer = document.createElement('div');
+                    resultsContainer.className = 'tool-results-container';
+                    
+                    toolResults.forEach(result => {
+                        const resultDiv = document.createElement('div');
+                        resultDiv.className = 'tool-result';
+                        
+                        const content = document.createElement('textarea');
+                        content.className = 'tool-result-content';
+                        content.value = result.content;
+                        content.readOnly = true;
+                        content.rows = 8; // Initial height
+                        
+                        resultDiv.appendChild(content);
+                        resultsContainer.appendChild(resultDiv);
+                    });
+                    
+                    contentDiv.appendChild(resultsContainer);
                 }
             } else {
                 const paragraph = document.createElement('p');
@@ -1174,8 +1240,28 @@ class TranscriptManager {
                 return;
             }
 
-            // Try to load transcript from the API
+            // Store the original saveMessageToTranscript function
+            const originalSaveMessageToTranscript = window.chatInterface.saveMessageToTranscript;
+
             try {
+                // Temporarily disable message saving
+                window.chatInterface.saveMessageToTranscript = () => Promise.resolve(true);
+                
+                // Clear chat interface first to prevent message accumulation
+                if (typeof window.chatInterface.clearMessages === 'function') {
+                    window.chatInterface.clearMessages();
+                } else {
+                    console.warn('clearMessages method not found on chatInterface');
+                    // Fallback: manually clear messages if possible
+                    if (window.chatInterface.messagesContainer) {
+                        window.chatInterface.messagesContainer.innerHTML = '';
+                    }
+                    if (Array.isArray(window.chatInterface.messages)) {
+                        window.chatInterface.messages = [];
+                    }
+                }
+                
+                // Try to load transcript from the API
                 const response = await fetch(`${this.API_BASE_URL}/api/transcripts/${transcriptId}/load`, {
                     method: 'POST',
                     headers: {
@@ -1195,48 +1281,24 @@ class TranscriptManager {
                     throw new Error('Invalid response from API');
                 }
                 
-                // Reset the chat interface
-                window.chatInterface.clearMessages();
-                
                 // Update current transcript info in chat interface
                 window.chatInterface.currentTranscriptId = transcriptId;
                 window.chatInterface.currentTranscriptName = data.name;
-                window.chatInterface.transcriptNameDisplay.textContent = data.name;
+                if (window.chatInterface.transcriptNameDisplay) {
+                    window.chatInterface.transcriptNameDisplay.textContent = data.name;
+                }
                 window.chatInterface.hasActivity = true;
                 
-                // Add messages to the UI without saving to transcript
-                const originalSaveMessageToTranscript = window.chatInterface.saveMessageToTranscript;
-                window.chatInterface.saveMessageToTranscript = () => Promise.resolve(true); // Temporarily disable saving
-                
-                try {
-                    // Filter out any duplicate messages by checking content and timestamp
-                    const uniqueMessages = new Set();
-                    data.messages.forEach(msg => {
-                        if (msg.role !== 'system') { // Skip system messages
-                            const messageKey = `${msg.role}-${msg.content}-${msg.timestamp}`;
-                            if (!uniqueMessages.has(messageKey)) {
-                                uniqueMessages.add(messageKey);
-                                window.chatInterface.addMessage(msg.role, msg.content, msg.timestamp);
-                            }
-                        }
-                    });
-                } finally {
-                    // Restore the original save function
-                    window.chatInterface.saveMessageToTranscript = originalSaveMessageToTranscript;
-                }
-                
-                // Save to localStorage for redundancy
-                window.chatInterface.saveTranscriptToLocalStorage();
-                
-                if (window.showNotification) {
-                    window.showNotification(`Loaded transcript: ${data.name}`, 2000);
-                } else {
-                    this.showNotification(`Loaded transcript: ${data.name}`);
+                // Add messages to the UI
+                for (const message of data.messages) {
+                    if (message.role !== 'system') { // Skip system messages
+                        await window.chatInterface.addMessage(message.role, message.content, message.timestamp);
+                    }
                 }
                 
                 // Close the transcript manager
                 this.closeManager();
-                return;
+                
             } catch (apiError) {
                 console.error('API error loading transcript:', apiError);
                 
@@ -1244,59 +1306,39 @@ class TranscriptManager {
                 const localTranscript = this.transcripts.find(t => t.id === transcriptId);
                 
                 if (localTranscript && localTranscript.messages && localTranscript.messages.length > 0) {
-                    // Reset the chat interface
-                    window.chatInterface.clearMessages();
-             
                     // Update current transcript info
                     window.chatInterface.currentTranscriptId = transcriptId;
                     window.chatInterface.currentTranscriptName = localTranscript.name;
-                    window.chatInterface.transcriptNameDisplay.textContent = localTranscript.name;
+                    if (window.chatInterface.transcriptNameDisplay) {
+                        window.chatInterface.transcriptNameDisplay.textContent = localTranscript.name;
+                    }
                     window.chatInterface.hasActivity = true;
                     
-                    // Add messages to the UI without saving to transcript
-                    const originalSaveMessageToTranscript = window.chatInterface.saveMessageToTranscript;
-                    window.chatInterface.saveMessageToTranscript = () => Promise.resolve(true); // Temporarily disable saving
-                    
-                    try {
-                        // Filter out any duplicate messages by checking content and timestamp
-                        const uniqueMessages = new Set();
-                        localTranscript.messages.forEach(msg => {
-                            if (msg.role !== 'system') { // Skip system messages
-                                const messageKey = `${msg.role}-${msg.content}-${msg.timestamp}`;
-                                if (!uniqueMessages.has(messageKey)) {
-                                    uniqueMessages.add(messageKey);
-                                    window.chatInterface.addMessage(msg.role, msg.content, msg.timestamp);
-                                }
-                            }
-                        });
-                    } finally {
-                        // Restore the original save function
-                        window.chatInterface.saveMessageToTranscript = originalSaveMessageToTranscript;
-                    }
-                    
-                    // Save to localStorage for redundancy
-                    window.chatInterface.saveTranscriptToLocalStorage();
-                    
-                    if (window.showNotification) {
-                        window.showNotification(`Loaded transcript: ${localTranscript.name}`, 2000);
-                    } else {
-                        this.showNotification(`Loaded transcript: ${localTranscript.name}`);
+                    // Add messages to the UI
+                    for (const message of localTranscript.messages) {
+                        if (message.role !== 'system') { // Skip system messages
+                            await window.chatInterface.addMessage(message.role, message.content, message.timestamp);
+                        }
                     }
                     
                     // Close the transcript manager
                     this.closeManager();
-                    return;
                 } else {
-                    throw apiError; // Re-throw to be caught by the outer catch block
+                    throw new Error('Failed to load transcript from both API and local cache');
                 }
+            } finally {
+                // Always restore the original saveMessageToTranscript function
+                // This ensures it gets restored even if there's an error
+                window.chatInterface.saveMessageToTranscript = originalSaveMessageToTranscript;
             }
         } catch (error) {
             console.error('Error loading transcript into chat:', error);
-            
-            if (window.showNotification) {
-                window.showNotification('Failed to load transcript. Please try again.', 3000);
+            // Use a more reliable notification approach
+            if (typeof this.showNotification === 'function') {
+                this.showNotification('Failed to load transcript', true);
             } else {
-                this.showNotification('Failed to load transcript. Please try again.', true);
+                console.error('Failed to load transcript:', error.message);
+                alert('Failed to load transcript: ' + error.message);
             }
         }
     }

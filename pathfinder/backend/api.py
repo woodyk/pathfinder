@@ -82,37 +82,29 @@ def api_interact():
     """Interact with the AI model and get a response.
     
     Request JSON parameters:
-        message (str): The user message to send to the AI.
-        attachments (list, optional): List of extracted text from attachments
-        model (str, optional): The model to use for this interaction. If not provided, uses the current model.
-        stream (bool, optional): Whether to stream the response. Default is True.
-        tools (bool, optional): Whether to enable tool calling for this interaction. Default is True.
-        transcript_id (str, optional): ID of the transcript to associate with this interaction.
+        message (str): The user message to send to the AI
+        attachments (list, optional): List of attachment strings to include with the message
+        stream (bool, optional): Whether to stream the response
+        tools (bool, optional): Whether to allow tool usage
+        transcript_id (str, optional): ID of the transcript to load
         
     Returns:
-        If streaming is enabled: a streaming response with response chunks.
-        Otherwise: a JSON response with the complete response.
+        Response containing the AI's response, either streamed or complete
     """
+    ai = get_interactor()
+    
     data = request.json
     user_input = data.get('message', '')
     attachments = data.get('attachments', [])
-    stream_enabled = data.get('stream', True)
-    tools_enabled = data.get('tools', True)
-    model = data.get('model')
-    transcript_id = data.get('transcript_id')
-
-    # Combine user input with attachment content
-    full_message = user_input
+    stream = data.get('stream', False)
+    enable_tools = data.get('tools', True)
+    transcript_id = data.get('transcript_id', None)
     
+    # Combine message with any attachments
     if attachments:
-        full_message += "\n\nAttached document content:\n"
-        for i, attachment in enumerate(attachments, 1):
-            full_message += f"\n--- Document {i} ---\n{attachment}\n"
-    
-    if not full_message.strip():
-        return jsonify({"error": "No message or attachments provided"}), 400
-    
-    ai = get_interactor()
+        combined_input = user_input + "\n\n" + "\n\n".join(attachments)
+    else:
+        combined_input = user_input
     
     # If a transcript ID is provided but not loaded in the interactor,
     # try to load it now to ensure continuity
@@ -126,8 +118,32 @@ def api_interact():
                 transcript = manager.get_transcript(transcript_id)
                 
                 if transcript:
-                    # Explicitly call load_transcript endpoint functionality
-                    load_transcript(transcript_id)
+                    # Don't call the endpoint directly to avoid cycling references
+                    # Instead, just update the interactor's message history
+                    ai.messages_flush()  # Clear existing messages but keep system prompt
+                    
+                    # Add each message from the transcript to the interactor
+                    for message in transcript['messages']:
+                        if message['role'] != 'system':  # Skip system messages
+                            # Handle different message formats
+                            if message.get('tool_calls'):
+                                # Assistant message with tool calls
+                                ai.history.append({
+                                    'role': message['role'],
+                                    'content': message.get('content'),
+                                    'tool_calls': message['tool_calls']
+                                })
+                            elif message.get('tool_call_id'):
+                                # Tool response message
+                                ai.history.append({
+                                    'role': 'tool',
+                                    'content': message['content'],
+                                    'tool_call_id': message['tool_call_id']
+                                })
+                            else:
+                                # Regular user or assistant message
+                                ai.messages_add(message['role'], message['content'])
+                    
                     print(f"Loaded transcript {transcript_id} with {len(transcript['messages'])} messages")
         except Exception as e:
             print(f"Warning: Failed to load transcript {transcript_id}: {str(e)}")
@@ -135,22 +151,47 @@ def api_interact():
     # Capture the response timestamp for storing with the message
     response_timestamp = int(time.time() * 1000)
     
-    if stream_enabled:
+    if stream:
         def generate():
             q = Queue()
+            tool_results = []  # Track tool results
             
             def stream_callback(token):
+                try:
+                    # Check if this is a tool call notification
+                    if token.startswith('{"type":"tool_call"') or token.startswith('{"type": "tool_call"'):
+                        notification = json.loads(token)
+                        # If it's a completed tool call with results, store the result
+                        if notification.get("status") == "completed" and "tool_result" in notification:
+                            tool_results.append({
+                                "tool_name": notification.get("tool_name"),
+                                "result": notification.get("tool_result")
+                            })
+                            # Don't send raw JSON notifications to the client
+                            return
+                except:
+                    pass  # If it's not valid JSON or doesn't have the expected structure, treat as normal token
+                
                 q.put(token)
             
             def generate_response():
                 try:
                     ai.interact(
-                        full_message, 
+                        combined_input, 
                         output_callback=stream_callback, 
                         stream=True, 
-                        tools=tools_enabled,
-                        model=model
+                        tools=enable_tools,
                     )
+                    
+                    # After interaction is complete, append tool results if any
+                    if tool_results:
+                        q.put("\n\n")  # Add spacing
+                        for result in tool_results:
+                            tool_name = result.get("tool_name", "Unknown Tool")
+                            result_data = result.get("result", {})
+                            q.put(f"Tool Results from {tool_name}:\n")
+                            q.put(json.dumps(result_data, indent=2))
+                            q.put("\n\n")
                 finally:
                     q.put(None)  # Signal end of stream
             
@@ -168,13 +209,89 @@ def api_interact():
         return Response(stream_with_context(generate()), content_type="text/plain")
     else:
         try:
+            # Track tool results
+            collected_tool_results = []
+            
+            def collect_tool_results(token):
+                try:
+                    # Check if this is a tool call notification
+                    if token.startswith('{"type":"tool_call"') or token.startswith('{"type": "tool_call"'):
+                        notification = json.loads(token)
+                        # If it's a completed tool call with results, store the result
+                        if notification.get("status") == "completed" and "tool_result" in notification:
+                            collected_tool_results.append({
+                                "tool_name": notification.get("tool_name"),
+                                "result": notification.get("tool_result")
+                            })
+                except:
+                    pass  # If it's not valid JSON or doesn't have the expected structure, ignore
+            
             response = ai.interact(
-                full_message, 
+                combined_input, 
                 quiet=True,
-                tools=tools_enabled,
+                tools=enable_tools,
                 stream=False,
-                model=model
+                output_callback=collect_tool_results  # Add callback to collect tool results
             )
+            
+            # Append tool results to the response text
+            if collected_tool_results:
+                response += "\n\n"  # Add spacing
+                for result in collected_tool_results:
+                    tool_name = result.get("tool_name", "Unknown Tool")
+                    result_data = result.get("result", {})
+                    response += f"Tool Results from {tool_name}:\n"
+                    response += json.dumps(result_data, indent=2)
+                    response += "\n\n"
+            
+            # Add tool calls to history
+            ai = get_interactor()
+            messages = ai.messages_get()
+            
+            print(f"Extracting tool calls from conversation history ({len(messages)} messages)")
+            
+            # Extract tool calls and their results from the history
+            tool_data = []
+            for i, msg in enumerate(messages):
+                if msg["role"] == "assistant" and msg.get("tool_calls"):
+                    print(f"Found assistant message with tool calls: {msg.get('tool_calls')}")
+                    tool_call_ids = [tc["id"] for tc in msg["tool_calls"]]
+                    
+                    # Find corresponding tool results for these tool calls
+                    message_results = []
+                    for tc_id in tool_call_ids:
+                        print(f"Looking for result of tool call {tc_id}")
+                        for tool_msg in messages:
+                            if tool_msg["role"] == "tool" and tool_msg.get("tool_call_id") == tc_id:
+                                print(f"Found tool result for {tc_id}")
+                                # Find which tool call this result belongs to
+                                for tc in msg["tool_calls"]:
+                                    if tc["id"] == tc_id:
+                                        tool_name = tc["function"]["name"]
+                                        tool_args = tc["function"]["arguments"]
+                                        
+                                        # Get the result content and sanitize it
+                                        try:
+                                            result = json.loads(tool_msg["content"])
+                                            message_results.append({
+                                                "tool_name": tool_name,
+                                                "tool_arguments": tool_args,
+                                                "tool_result": result
+                                            })
+                                            print(f"Added result for tool {tool_name}")
+                                        except:
+                                            # Fallback if parsing fails
+                                            print(f"Failed to parse tool result for {tool_name}")
+                                            message_results.append({
+                                                "tool_name": tool_name,
+                                                "tool_arguments": tool_args,
+                                                "tool_result": {"error": "Failed to parse tool result"}
+                                            })
+                    
+                    if message_results:
+                        # Collect all results instead of replacing them
+                        tool_data.extend(message_results)
+                        print(f"Collected {len(message_results)} tool results, total: {len(tool_data)}")
             
             # If transcript_id exists, save the response to the transcript
             if transcript_id:
@@ -189,16 +306,37 @@ def api_interact():
                         # Add user message
                         messages.append({
                             "role": "user",
-                            "content": full_message,
+                            "content": combined_input,
                             "timestamp": int(time.time() * 1000)
                         })
                         
-                        # Add assistant response
-                        messages.append({
+                        # Add assistant response with tool data if available
+                        assistant_message = {
                             "role": "assistant",
                             "content": response,
                             "timestamp": response_timestamp
-                        })
+                        }
+                        
+                        # Add tool_data if we have any
+                        if tool_data:
+                            print(f"Adding {len(tool_data)} tool results to assistant message")
+                            assistant_message["tool_data"] = tool_data
+                            
+                            # Also ensure the formatted tool results are in the content
+                            # This ensures the transcript displays tool results consistently
+                            if not response.endswith("\n\n") and tool_data:
+                                assistant_message["content"] += "\n\n"
+                                
+                            for result in tool_data:
+                                tool_name = result.get("tool_name", "Unknown Tool")
+                                result_data = result.get("tool_result", {})
+                                if result_data:
+                                    assistant_message["content"] += f"Tool Results from {tool_name}:\n"
+                                    assistant_message["content"] += json.dumps(result_data, indent=2)
+                                    assistant_message["content"] += "\n\n"
+                        
+                        messages.append(assistant_message)
+                        print(f"Saving updated transcript with {len(messages)} messages")
                         
                         # Update the transcript with the new messages
                         manager.update_transcript(transcript_id, {"messages": messages})
@@ -1216,7 +1354,8 @@ def load_transcript(transcript_id):
                     # Regular user or assistant message
                     ai.messages_add(message['role'], message['content'])
         
-        # Return the transcript data directly
+        # Return the transcript data without marking it as touched
+        # This prevents a race condition with duplicate message saving
         return jsonify({
             "success": True,
             "name": transcript['name'],
