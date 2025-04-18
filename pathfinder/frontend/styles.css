@@ -824,7 +824,7 @@ body {
     font-family: inherit;
     font-size: 14px;
     line-height: 24px;
-    overflow-y: hidden;
+    overflow-y: auto;
     padding: 0;
 }
 

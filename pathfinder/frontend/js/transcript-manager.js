@@ -1,3 +1,8 @@
+//
+// File: transcript-manager.js
+// Author: Wadih Khairallah
+// Description: 
+// Created: 2025-04-17 23:12:42
 // Transcript Manager
 class TranscriptManager {
     constructor() {
@@ -374,7 +379,7 @@ class TranscriptManager {
         });
     }
     
-    renderTranscriptContent(transcript) {
+    renderTranscriptContent(transcript, scrollPosition = null) {
         if (!this.contentContainer) return;
         
         this.contentContainer.innerHTML = '';
@@ -757,6 +762,13 @@ class TranscriptManager {
             messageDiv.appendChild(wrapperDiv);
             messagesContainer.appendChild(messageDiv);
         });
+
+        // Restore scroll position if provided
+        if (scrollPosition !== null) {
+            requestAnimationFrame(() => {
+                messagesContainer.scrollTop = scrollPosition;
+            });
+        }
     }
     
     async selectTranscript(id) {
@@ -1209,6 +1221,30 @@ class TranscriptManager {
                 throw new Error(`Failed to delete transcript: ${response.statusText}`);
             }
             
+            // Check if this transcript is currently open in the chat interface
+            if (window.chatInterface && window.chatInterface.currentTranscriptId === this.selectedTranscript.id) {
+                // Clear the current transcript in the chat interface
+                window.chatInterface.currentTranscriptId = null;
+                window.chatInterface.currentTranscriptName = 'Untitled';
+                window.chatInterface.hasActivity = false;
+                
+                // Clear messages if the clearMessages method exists
+                if (typeof window.chatInterface.clearMessages === 'function') {
+                    window.chatInterface.clearMessages();
+                }
+                
+                // Save session state if available
+                if (typeof window.chatInterface.saveSessionState === 'function') {
+                    window.chatInterface.saveSessionState();
+                }
+                
+                // Reinitialize the transcript name display and its event listeners
+                if (window.chatInterface.transcriptNameDisplay) {
+                    window.chatInterface.transcriptNameDisplay.textContent = 'Untitled';
+                    window.chatInterface.bindEvents(); // Rebind all events including transcript name editing
+                }
+            }
+            
             // Remove from local array
             const indexToRemove = this.transcripts.findIndex(t => t.id === this.selectedTranscript.id);
             if (indexToRemove !== -1) {
@@ -1518,6 +1554,10 @@ class TranscriptManager {
         }
         
         try {
+            // Store the current scroll position
+            const messagesContainer = this.contentContainer.querySelector('.transcript-messages');
+            const scrollPosition = messagesContainer ? messagesContainer.scrollTop : 0;
+            
             // Create a new messages array without the deleted messages
             const newMessages = this.selectedTranscript.messages.filter((_, index) => {
                 return !this.selectedMessagesForDeletion.has(index);
@@ -1542,9 +1582,9 @@ class TranscriptManager {
             // Update the local transcript
             this.selectedTranscript.messages = newMessages;
             
-            // Clear selection and refresh the view
+            // Clear selection and refresh the view with scroll position
             this.selectedMessagesForDeletion.clear();
-            this.renderTranscriptContent(this.selectedTranscript);
+            this.renderTranscriptContent(this.selectedTranscript, scrollPosition);
             
             this.showNotification(`Deleted ${this.selectedMessagesForDeletion.size} messages`);
         } catch (error) {

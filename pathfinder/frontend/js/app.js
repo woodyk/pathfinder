@@ -72,6 +72,18 @@ class ChatInterface {
                 const data = await response.json();
                 const transcript = data.transcript;
                 
+                // Check for duplicates within a 1-second window
+                const isDuplicate = transcript.messages.some(msg =>
+                    msg.role === role &&
+                    msg.content === content &&
+                    Math.abs((msg.timestamp || 0) - (timestamp || Date.now())) < 1000
+                );
+                
+                if (isDuplicate) {
+                    console.log('Duplicate message detected in transcript, skipping save...');
+                    return;
+                }
+                
                 // Add the new message to the transcript's messages array
                 transcript.messages.push({
                     role: role,
@@ -308,8 +320,14 @@ class ChatInterface {
         
         // Inline editing for transcript name
         if (this.transcriptNameDisplay) {
+            // Remove any existing event listeners
+            const newTranscriptNameDisplay = this.transcriptNameDisplay.cloneNode(true);
+            this.transcriptNameContainer.replaceChild(newTranscriptNameDisplay, this.transcriptNameDisplay);
+            this.transcriptNameDisplay = newTranscriptNameDisplay;
+            
             this.transcriptNameDisplay.addEventListener('click', (e) => {
                 e.preventDefault();
+                
                 
                 // Create an input element to replace the span
                 const input = document.createElement('input');
@@ -444,7 +462,7 @@ class ChatInterface {
         this.messagesContainer.appendChild(assistantMessage);
         
         // Ensure the loading message is visible by scrolling to bottom
-        this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+        this.smoothScrollToBottom();
         
         // Prepare content div for streaming
         const contentDiv = document.createElement('div');
@@ -532,20 +550,27 @@ class ChatInterface {
                     
                     // Save the assistant's complete response to the transcript if needed
                     if (this.currentTranscriptId && shouldSaveToTranscript) {
+                        const msgTimestamp = Date.now();
+                        
                         // Check if this exact response is already in the transcript
-                        const existingAssistantMessage = this.messages.find(msg => 
-                            msg.role === 'assistant' && msg.content === accumulatedText
+                        const isDuplicate = this.messages.some(msg => 
+                            msg.role === 'assistant' && 
+                            msg.content === accumulatedText &&
+                            Math.abs((msg.timestamp || 0) - msgTimestamp) < 1000
                         );
                         
-                        if (!existingAssistantMessage) {
+                        if (!isDuplicate) {
                             // Update messages array with the assistant's message
                             this.messages.push({
                                 role: 'assistant',
                                 content: accumulatedText,
-                                timestamp: Date.now()
+                                timestamp: msgTimestamp
                             });
                             
-                            await this.saveMessageToTranscript('assistant', accumulatedText);
+                            // Save to transcript with a small delay to avoid race conditions
+                            setTimeout(() => {
+                                this.saveMessageToTranscript('assistant', accumulatedText, msgTimestamp);
+                            }, 100);
                         }
                     }
                     
@@ -988,13 +1013,16 @@ class ChatInterface {
             return null;
         }
         
-        // Check if this is a duplicate of the last message (prevent duplicates)
-        if (this.messages.length > 0) {
-            const lastMessage = this.messages[this.messages.length - 1];
-            if (lastMessage.role === role && lastMessage.content === content) {
-                console.log('Duplicate message detected, skipping...');
-                return null;
-            }
+        // Check if this is a duplicate message (prevent duplicates)
+        const isDuplicate = this.messages.some(msg => 
+            msg.role === role && 
+            msg.content === content &&
+            Math.abs((msg.timestamp || 0) - (timestamp || Date.now())) < 1000 // Within 1 second
+        );
+        
+        if (isDuplicate) {
+            console.log('Duplicate message detected, skipping...');
+            return null;
         }
         
         // Add message to internal array
@@ -1440,13 +1468,22 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initialize textarea height
     function initTextarea() {
         chatInput.style.height = '24px';
-        chatInput.style.overflowY = 'hidden';
+        chatInput.style.overflowY = 'auto'; // Changed from 'hidden' to 'auto'
     }
 
     // Adjust textarea height
     function adjustTextareaHeight() {
         chatInput.style.height = 'auto';
-        chatInput.style.height = (chatInput.scrollHeight) + 'px';
+        const newHeight = chatInput.scrollHeight;
+        const maxHeight = parseInt(window.getComputedStyle(chatInput).maxHeight);
+        
+        if (newHeight > maxHeight) {
+            chatInput.style.height = maxHeight + 'px';
+            chatInput.style.overflowY = 'auto';
+        } else {
+            chatInput.style.height = newHeight + 'px';
+            chatInput.style.overflowY = 'hidden';
+        }
     }
 
     // Add message to chat interface
