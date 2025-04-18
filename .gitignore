@@ -46,4 +46,6 @@ gpt2_finetuned
 .grit/
 pathfinder/frontend/user_data/*
 pathfinder/uploads
-pathfinder/pathfinder.db
+pathfinder/data/transcripts.db
+**.db
+
