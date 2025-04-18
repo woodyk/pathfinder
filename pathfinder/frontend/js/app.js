@@ -79,25 +79,26 @@ class ChatInterface {
                     timestamp: timestamp || Date.now()
                 });
                 
-                // Update the transcript with the new messages array
+                // Update the transcript
                 const updateResponse = await fetch(`${API_BASE_URL}/api/transcripts/${this.currentTranscriptId}`, {
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({
-                        messages: transcript.messages
-                    })
+                    body: JSON.stringify(transcript)
                 });
                 
                 if (!updateResponse.ok) {
-                    throw new Error('Failed to save message to transcript');
+                    throw new Error('Failed to update transcript');
                 }
                 
-                return true;
+                // Save current session state to localStorage
+                this.saveSessionState();
+                
             } catch (error) {
                 console.error('Error saving message to transcript:', error);
-                return false;
+                // Fallback to localStorage
+                this.saveTranscriptToLocalStorage();
             }
         };
         
@@ -127,10 +128,27 @@ class ChatInterface {
                 
                 // Save back to localStorage
                 localStorage.setItem('transcripts', JSON.stringify(localTranscripts));
+                
+                // Save current session state
+                this.saveSessionState();
             } catch (error) {
                 console.error('Error saving to localStorage:', error);
             }
         };
+        
+        // Save current session state to localStorage
+        this.saveSessionState = () => {
+            if (this.currentTranscriptId) {
+                localStorage.setItem('currentSession', JSON.stringify({
+                    transcriptId: this.currentTranscriptId,
+                    name: this.currentTranscriptName,
+                    timestamp: Date.now()
+                }));
+            }
+        };
+        
+        // Try to restore previous session
+        this.restoreSession();
         
         // Add these helper functions to the class
         this.showLoading = () => {
@@ -246,10 +264,6 @@ class ChatInterface {
     
     bindEvents() {
         // Clear chat button
-        document.getElementById('clear-chat').addEventListener('click', () => {
-            this.clearMessages();
-            this.startNewSession();
-        });
         
         // Bind send button
         const sendButton = document.getElementById('send-button');
@@ -548,9 +562,11 @@ class ChatInterface {
                 const chunk = decoder.decode(value, { stream: true });
                 
                 // Check for tool call notifications
+                let isJSONHandled = false;
                 try {
                     const notification = JSON.parse(chunk);
-                    if (notification.type === 'tool_call') {
+                    if (notification && typeof notification === 'object' && notification.type === 'tool_call') {
+                        isJSONHandled = true;
                         if (notification.status === 'started') {
                             toolCallInProgress = true;
                             currentToolName = notification.tool_name;
@@ -585,6 +601,12 @@ class ChatInterface {
                     }
                 } catch (e) {
                     // Not a JSON notification, treat as normal text
+                    isJSONHandled = false;
+                }
+                
+                // If JSON wasn't handled as a tool call notification (or was a primitive like a number),
+                // treat it as regular text
+                if (!isJSONHandled) {
                     accumulatedText += chunk;
                     
                     // If this is the first content chunk, remove the loading indicator
@@ -744,6 +766,9 @@ class ChatInterface {
                 console.error('Error resetting messages on the server:', error);
             }
             
+            // Clear session state in localStorage
+            localStorage.removeItem('currentSession');
+            
             // Show notification
             if (window.showNotification) {
                 window.showNotification('Started new session', 2000);
@@ -836,6 +861,11 @@ class ChatInterface {
     }
 
     async updateTranscriptName(transcriptId, newName) {
+        if (!transcriptId) {
+            console.warn('No transcript ID provided, skipping name update');
+            return;
+        }
+
         try {
             const response = await fetch(`${this.API_BASE_URL}/api/transcripts/${transcriptId}`, {
                 method: 'PUT',
@@ -843,26 +873,48 @@ class ChatInterface {
                     'Content-Type': 'application/json',
                     'Accept': 'application/json'
                 },
-                body: JSON.stringify({ name: newName }),
-                credentials: 'include'
+                credentials: 'include',
+                body: JSON.stringify({
+                    name: newName
+                })
             });
 
             if (!response.ok) {
-                console.error(`Failed to update transcript name: ${response.statusText}`);
-                // Update UI anyway
-                this.transcriptNameDisplay.textContent = newName;
-                return;
+                throw new Error(`HTTP error! status: ${response.status}`);
             }
+
+            // Also update name in current instance
+            this.currentTranscriptName = newName;
             
-            const data = await response.json();
-            this.transcriptNameDisplay.textContent = data.transcript.name;
+            // Save session state
+            this.saveSessionState();
             
-            // Also update in localStorage for redundancy
-            this.saveTranscriptToLocalStorage();
+            return true;
         } catch (error) {
             console.error('Error updating transcript name:', error);
-            // Update UI anyway
-            this.transcriptNameDisplay.textContent = newName;
+            
+            // Fallback to localStorage
+            try {
+                const localTranscripts = JSON.parse(localStorage.getItem('transcripts') || '[]');
+                const index = localTranscripts.findIndex(t => t.id === transcriptId);
+                
+                if (index !== -1) {
+                    localTranscripts[index].name = newName;
+                    localStorage.setItem('transcripts', JSON.stringify(localTranscripts));
+                    
+                    // Update name in current instance
+                    this.currentTranscriptName = newName;
+                    
+                    // Save session state
+                    this.saveSessionState();
+                    
+                    return true;
+                }
+            } catch (localError) {
+                console.error('Error updating transcript name in localStorage:', localError);
+            }
+            
+            return false;
         }
     }
 
@@ -914,12 +966,18 @@ class ChatInterface {
 
             // Save to localStorage for redundancy
             this.saveTranscriptToLocalStorage();
+            
+            // Save session state
+            this.saveSessionState();
 
         } catch (error) {
             console.error('Error updating transcript:', error);
             // Use the global showNotification function instead of this.showNotification
             window.showNotification ? window.showNotification('Failed to update transcript', 3000) : 
-                console.error('Could not show notification: showNotification not available');
+                console.warn('Failed to update transcript');
+                
+            // Try to save to localStorage as backup
+            this.saveTranscriptToLocalStorage();
         }
     }
     
@@ -1145,6 +1203,90 @@ class ChatInterface {
     
     getMessages() {
         return this.messages;
+    }
+
+    // New method to restore previous session
+    async restoreSession() {
+        try {
+            const savedSession = localStorage.getItem('currentSession');
+            if (!savedSession) return;
+            
+            const { transcriptId, name } = JSON.parse(savedSession);
+            if (!transcriptId) return;
+            
+            console.log(`Restoring previous session: ${name} (${transcriptId})`);
+            
+            // Check if transcript manager exists
+            if (window.transcriptManager) {
+                // Use transcript manager to load the transcript
+                await window.transcriptManager.loadTranscriptIntoChat(transcriptId);
+            } else {
+                // Directly fetch and load the transcript
+                try {
+                    // Try API first
+                    const response = await fetch(`${this.API_BASE_URL}/api/transcripts/${transcriptId}`, {
+                        method: 'GET',
+                        headers: {
+                            'Accept': 'application/json'
+                        },
+                        credentials: 'include'
+                    });
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.transcript && data.transcript.messages) {
+                            // Set current transcript info
+                            this.currentTranscriptId = transcriptId;
+                            this.currentTranscriptName = data.transcript.name;
+                            if (this.transcriptNameDisplay) {
+                                this.transcriptNameDisplay.textContent = data.transcript.name;
+                            }
+                            this.hasActivity = true;
+                            
+                            // Clear existing messages
+                            this.clearMessages();
+                            
+                            // Add messages to chat
+                            for (const message of data.transcript.messages) {
+                                if (message.role !== 'system') { // Skip system messages
+                                    this.addMessage(message.role, message.content, message.timestamp);
+                                }
+                            }
+                        }
+                    } else {
+                        throw new Error('Failed to fetch transcript from API');
+                    }
+                } catch (apiError) {
+                    console.error('API error, trying localStorage:', apiError);
+                    
+                    // Try localStorage
+                    const storedTranscripts = JSON.parse(localStorage.getItem('transcripts') || '[]');
+                    const transcript = storedTranscripts.find(t => t.id === transcriptId);
+                    
+                    if (transcript && transcript.messages) {
+                        // Set current transcript info
+                        this.currentTranscriptId = transcriptId;
+                        this.currentTranscriptName = transcript.name;
+                        if (this.transcriptNameDisplay) {
+                            this.transcriptNameDisplay.textContent = transcript.name;
+                        }
+                        this.hasActivity = true;
+                        
+                        // Clear existing messages
+                        this.clearMessages();
+                        
+                        // Add messages to chat
+                        for (const message of transcript.messages) {
+                            if (message.role !== 'system') { // Skip system messages
+                                this.addMessage(message.role, message.content, message.timestamp);
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Error restoring session:', error);
+        }
     }
 }
 
@@ -2613,7 +2755,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Event listeners
     sendButton.addEventListener('click', () => window.chatInterface.handleSendMessage());
-    clearButton.addEventListener('click', clearChat);
     
     chatInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -4260,6 +4401,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Add click handler for config button
     modelConfigButton.addEventListener('click', () => {
+        // Check if a model config window is already open
+        const existingWindows = window.windowManager.findWindowsByTitle('Model Configuration');
+        if (existingWindows.length > 0) {
+            // Focus the existing window instead of creating a new one
+            window.windowManager.focusWindow(existingWindows[0]);
+            return;
+        }
+        
         createModelConfigWindow();
     });
 

@@ -1270,35 +1270,38 @@ class TranscriptManager {
                     },
                     credentials: 'include'
                 });
-
+                
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
-
-                const data = await response.json();
                 
-                if (!data.success || !data.messages) {
-                    throw new Error('Invalid response from API');
+                const data = await response.json();
+                if (!data.transcript) {
+                    throw new Error('Invalid transcript data received');
                 }
                 
                 // Update current transcript info in chat interface
                 window.chatInterface.currentTranscriptId = transcriptId;
-                window.chatInterface.currentTranscriptName = data.name;
+                window.chatInterface.currentTranscriptName = data.transcript.name;
                 if (window.chatInterface.transcriptNameDisplay) {
-                    window.chatInterface.transcriptNameDisplay.textContent = data.name;
+                    window.chatInterface.transcriptNameDisplay.textContent = data.transcript.name;
                 }
                 window.chatInterface.hasActivity = true;
                 
                 // Add messages to the UI
-                for (const message of data.messages) {
+                for (const message of data.transcript.messages) {
                     if (message.role !== 'system') { // Skip system messages
                         await window.chatInterface.addMessage(message.role, message.content, message.timestamp);
                     }
                 }
                 
+                // Save session state to localStorage
+                if (typeof window.chatInterface.saveSessionState === 'function') {
+                    window.chatInterface.saveSessionState();
+                }
+                
                 // Close the transcript manager
                 this.closeManager();
-                
             } catch (apiError) {
                 console.error('API error loading transcript:', apiError);
                 
@@ -1321,6 +1324,11 @@ class TranscriptManager {
                         }
                     }
                     
+                    // Save session state to localStorage
+                    if (typeof window.chatInterface.saveSessionState === 'function') {
+                        window.chatInterface.saveSessionState();
+                    }
+                    
                     // Close the transcript manager
                     this.closeManager();
                 } else {
@@ -1333,13 +1341,7 @@ class TranscriptManager {
             }
         } catch (error) {
             console.error('Error loading transcript into chat:', error);
-            // Use a more reliable notification approach
-            if (typeof this.showNotification === 'function') {
-                this.showNotification('Failed to load transcript', true);
-            } else {
-                console.error('Failed to load transcript:', error.message);
-                alert('Failed to load transcript: ' + error.message);
-            }
+            this.showNotification(`Failed to load transcript: ${error.message}`, true);
         }
     }
     
